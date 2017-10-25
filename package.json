@@ -1,0 +1,29 @@
+{
+  "name": "gdax-realtime-balance",
+  "version": "1.0.0",
+  "description": "Get the current total value of all GDAX holdings in USD",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/msolters/gdax-realtime-balance.git"
+  },
+  "author": "Mark Solters",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/msolters/gdax-realtime-balance/issues"
+  },
+  "engines": {
+    ">=7.8.0"
+  },
+  "homepage": "https://github.com/msolters/gdax-realtime-balance#readme",
+  "dependencies": {
+    "blessed": "^0.1.81",
+    "blessed-contrib": "^4.8.5",
+    "coinbase": "^2.0.6",
+    "gdax": "^0.4.2",
+    "underscore": "^1.8.3"
+  }
+}
