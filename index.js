@@ -8,7 +8,7 @@ const Account = Coinbase.model.Account
 
 const blessed = require('blessed')
 const contrib = require('blessed-contrib')
-const screen = blessed.screen()
+//const screen = blessed.screen()
 
 const coinbase_client = new Client({
   'apiKey': settings.coinbase.api.key,
@@ -117,7 +117,12 @@ let sale_sum = 0
 let buy_sum = 0
 
 const get_fills = (product, opts={}) => {
+  sells = 0
+  buys = 0
+  sale_sum = 0
+  buy_sum = 0
   return new Promise( (resolve, reject) => {
+    opts.product_id = product
     gdax_private.getFills( opts, (error, response, data) => {
       if( error ) {
         reject(error)
@@ -131,7 +136,6 @@ const get_fills = (product, opts={}) => {
       let first_order = data[0].trade_id
       for( let fill of data ) {
         oldest_order = fill.trade_id
-        if( fill.product_id !== product ) continue
         oldest_date = fill.created_at
         let price = parseFloat(fill.price)
         let size = parseFloat(fill.size)
@@ -162,15 +166,68 @@ const get_fills = (product, opts={}) => {
   })
 }
 
+const draw_chart = (data) => {
+  data = _.map(data, (d) => {
+    let _d = d
+    _d.x = d.x.reverse()
+    _d.y = d.y.reverse()
+    return _d
+  })
+  let min = _.min( _.map(data, (d) => _.min(d.y)) )
+  line = contrib.line({
+    minY: min,
+    xLabelPadding: 3,
+    xPadding: 5,
+    wholeNumbersOnly: false,
+    label: 'Sell vs Buy'
+  })
+  screen.append(line)
+  screen.key(['escape', 'q', 'C-c'], function(ch, key) {
+    return process.exit(0);
+  })
+  line.setData(data)
+  screen.render()
+}
+
 async function get_all_fills(product, pages=1) {
   let page_count = 0
   let oldest_order = null
 
-  let timestamps = []
-  let data = []
+  let sell_data = {
+    title: 'Sell',
+    x: [],
+    y: [],
+    style: {
+      line: "red",
+      text: "red",
+      baseline: "black"
+    }
+  }
+  let buy_data = {
+    title: 'Buy',
+    x: [],
+    y: [],
+    style: {
+      line: "green",
+      text: "green",
+      baseline: "black"
+    }
+  }
+  let difference_data = {
+    title: 'Difference',
+    x: [],
+    y: [],
+    style: {
+      line: "grey",
+      text: "grey",
+      baseline: "black"
+    }
+  }
 
   while( page_count < pages ) {
-    let opts = {}
+    let opts = {
+      limit: 30
+    }
     if( oldest_order ) {
       opts = {
         after: oldest_order
@@ -178,12 +235,17 @@ async function get_all_fills(product, pages=1) {
     }
     try{
       let pagination_data = await get_fills(product, opts)
+      let ts = new Date(pagination_data.oldest_date).valueOf()
       oldest_order = pagination_data.oldest_order
       let sell_avg = sale_sum/sells
-      let buy_avg = sale_sum/sells
-      console.log(`[${page_count}/${pages}] Avg Sale Price: $${sell_avg}\tAvg Buy Price: $${buy_avg} (${pagination_data.oldest_date})`)
-      data.push(sell_avg-buy_avg)
-      timestamps.push(pagination_data.oldest_date)
+      let buy_avg = buy_sum/buys
+      console.log(`[${page_count}/${pages}] S $${sell_avg}\tB $${buy_avg} -/+ ${sell_avg-buy_avg} (${pagination_data.oldest_date})`)
+      sell_data.x.push(ts)
+      sell_data.y.push(sell_avg)
+      buy_data.x.push(ts)
+      buy_data.y.push(buy_avg)
+      //difference_data.x.push(ts)
+      //difference_data.y.push((sell_avg-buy_avg))
     } catch( error ) {
       console.error( error )
       if( error === "No data.") {
@@ -193,28 +255,7 @@ async function get_all_fills(product, pages=1) {
     page_count++
   }
 
-  line = contrib.line({
-    style: {
-      line: "yellow",
-      text: "green",
-      baseline: "black"
-    },
-    xLabelPadding: 3,
-    xPadding: 5,
-    label: 'Title'
-  })
-  let _data = {
-    x: timestamps,
-    y: data
-  }
-  screen.append(line) //must append before setting data
-  line.setData([_data])
-
-  screen.key(['escape', 'q', 'C-c'], function(ch, key) {
-    return process.exit(0);
-  });
-
-  screen.render()
+  //draw_chart([sell_data, buy_data])
 }
 
-get_all_fills('BTC-USD', 5)
+get_all_fills('ETH-USD', 30)
