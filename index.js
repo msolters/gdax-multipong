@@ -2,6 +2,7 @@ fs = require("fs")
 settings = JSON.parse( fs.readFileSync("settings.json", "utf8") )
 const gdax = require('gdax')
 const _ = require('underscore')
+const moment = require('moment')
 const Coinbase = require('coinbase')
 const Client = Coinbase.Client
 const Account = Coinbase.model.Account
@@ -109,70 +110,19 @@ const total_value_timer = () => {
 //total_value_timer()
 //price_timer()
 
-let cumulative_change = 0
-
-let sells = 0
-let buys = 0
-let sale_sum = 0
-let buy_sum = 0
-
-const get_fills = (product, opts={}) => {
-  sells = 0
-  buys = 0
-  sale_sum = 0
-  buy_sum = 0
+const get_fills = (opts={}) => {
   return new Promise( (resolve, reject) => {
-    opts.product_id = product
     gdax_private.getFills( opts, (error, response, data) => {
       if( error ) {
         reject(error)
         return
       }
-      if( !data.length ) {
-        reject('No data.')
-        return
-      }
-      let oldest_order, oldest_date
-      let first_order = data[0].trade_id
-      for( let fill of data ) {
-        oldest_order = fill.trade_id
-        oldest_date = fill.created_at
-        let price = parseFloat(fill.price)
-        let size = parseFloat(fill.size)
-        let delta = price * size
-        let change = ''
-        switch( fill.side ) {
-          case 'buy':
-            cumulative_change -= delta
-            buy_sum += price
-            buys++
-            change = '-'
-            break
-          case 'sell':
-            cumulative_change += delta
-            sale_sum += price
-            sells++
-            change = '+'
-            break
-        }
-        //console.log(`$${cumulative_change}\t${change}$${delta}`)
-      }
-      resolve({
-        first_order: first_order,
-        oldest_order: oldest_order,
-        oldest_date: oldest_date
-      })
+      resolve(data)
     })
   })
 }
 
 const draw_chart = (data) => {
-  data = _.map(data, (d) => {
-    let _d = d
-    _d.x = d.x.reverse()
-    _d.y = d.y.reverse()
-    return _d
-  })
   let min = _.min( _.map(data, (d) => _.min(d.y)) )
   line = contrib.line({
     minY: min,
@@ -189,63 +139,32 @@ const draw_chart = (data) => {
   screen.render()
 }
 
-async function get_all_fills(product, pages=1) {
-  let page_count = 0
+async function get_all_fills(product, pages=null) {
   let oldest_order = null
+  let all_fills = []
 
-  let sell_data = {
-    title: 'Sell',
-    x: [],
-    y: [],
-    style: {
-      line: "red",
-      text: "red",
-      baseline: "black"
+  let page_count = 0
+  function loop_condition() {
+    if(pages) {
+      if( page_count < pages ) return true
+    } else {
+      return true
     }
+    return false
   }
-  let buy_data = {
-    title: 'Buy',
-    x: [],
-    y: [],
-    style: {
-      line: "green",
-      text: "green",
-      baseline: "black"
-    }
-  }
-  let difference_data = {
-    title: 'Difference',
-    x: [],
-    y: [],
-    style: {
-      line: "grey",
-      text: "grey",
-      baseline: "black"
-    }
-  }
-
-  while( page_count < pages ) {
+  while( loop_condition() ) {
+    console.log(`Getting page ${page_count+1}/${pages||'all'}`)
     let opts = {
-      limit: 30
+      limit: 30,
+      product_id: product
     }
-    if( oldest_order ) {
-      opts = {
-        after: oldest_order
-      }
-    }
+    if( oldest_order ) opts.after = oldest_order
     try{
-      let pagination_data = await get_fills(product, opts)
-      let ts = new Date(pagination_data.oldest_date).valueOf()
-      oldest_order = pagination_data.oldest_order
-      let sell_avg = sale_sum/sells
-      let buy_avg = buy_sum/buys
-      console.log(`[${page_count}/${pages}] S $${sell_avg}\tB $${buy_avg} -/+ ${sell_avg-buy_avg} (${pagination_data.oldest_date})`)
-      sell_data.x.push(ts)
-      sell_data.y.push(sell_avg)
-      buy_data.x.push(ts)
-      buy_data.y.push(buy_avg)
-      //difference_data.x.push(ts)
-      //difference_data.y.push((sell_avg-buy_avg))
+      let fills = await get_fills(opts)
+      let num_fills = fills.length
+      if( num_fills === 0 ) break
+      all_fills = all_fills.concat(fills)
+      oldest_order = fills[num_fills-1].trade_id
     } catch( error ) {
       console.error( error )
       if( error === "No data.") {
@@ -255,7 +174,63 @@ async function get_all_fills(product, pages=1) {
     page_count++
   }
 
-  //draw_chart([sell_data, buy_data])
+  return all_fills
 }
 
-get_all_fills('ETH-USD', 30)
+const process_fills = ( fills ) => {
+  fills.reverse() // oldest->newest
+  let sells = _.where(fills, {side: 'sell'})
+  let buys = _.where(fills, {side: 'buy'})
+
+  //  Averages
+  let sell_avg = _.reduce(sells, (total, fill) => {
+    return total + parseFloat(fill.price)
+  }, 0)
+  let buy_avg = _.reduce(buys, (total, fill) => {
+    return total + parseFloat(fill.price)
+  }, 0)
+  sell_avg /= sells.length
+  buy_avg /= buys.length
+
+  //  Totals
+  let sell_total = _.reduce(sells, (total, fill) => {
+    return total + (parseFloat(fill.price) * parseFloat(fill.size))
+  }, 0)
+  let buy_total = _.reduce(buys, (total, fill) => {
+    return total + (parseFloat(fill.price) * parseFloat(fill.size))
+  }, 0)
+
+  console.log(`${fills[0].product_id} since ${moment(fills[0].created_at).format('ddd MMM Do, h:mm:ss a')}`)
+  console.log(`Avg Buy:    $${buy_avg}`)
+  console.log(`Avg Sell:   $${sell_avg}`)
+  console.log(`Total Buy:  $${buy_total}`)
+  console.log(`Total Sell: $${sell_total}`)
+  console.log(`Net Delta:  $${sell_total-buy_total}`)
+/*
+  let chart_data = []
+  const colors = {
+    sell: 'red',
+    buy: 'green'
+  }
+  for( dataset of [sells, buys] ) {
+    let dataset_name = dataset[0].side
+    let _data = {
+      title: dataset_name,
+      x: _.map(dataset, (d) => moment(d.created_at).format('M/D h:mm:ss a')),
+      y: _.map(dataset, (d) => (parseFloat(d.price) * parseFloat(d.size))),
+      style: {
+        line: colors[dataset_name],
+        text: colors[dataset_name],
+        baseline: "black"
+      }
+    }
+    chart_data.push(_data)
+  }
+  draw_chart(chart_data)
+*/
+}
+
+get_all_fills('ETH-USD')
+.then( (fills) => {
+  process_fills(fills)
+})
