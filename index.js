@@ -18,13 +18,6 @@ const coinbase_client = new Client({
 })
 const gdax_private = new gdax.AuthenticatedClient(settings.gdax.api.key, settings.gdax.api.secret, settings.gdax.api.passphrase, settings.gdax.api.uri)
 
-/*
-const gdax_ws = new gdax.WebsocketClient(['BTC-USD'])
-gdax_ws.on('message', (data) => {
-  console.log(data)
-})
-*/
-
 const get_spot_price = exports.get_spot_price = ( coins ) => {
   if( !Array.isArray(coins) ) {
     coins = [ coins ]
@@ -97,7 +90,7 @@ const get_total_value = () => {
 const total_value_timer = () => {
   get_total_value()
   .then( (current_total) => {
-    console.log(`$${current_total} USD`)
+    console.log(`${moment().format("MM/D/YY hh:mm:ss a")}\t$${current_total} USD`)
   } )
   .catch( (error) => {
     console.error(error)
@@ -107,8 +100,8 @@ const total_value_timer = () => {
   } )
 }
 
-//total_value_timer()
-//price_timer()
+total_value_timer()
+price_timer()
 
 const get_fills = (opts={}) => {
   return new Promise( (resolve, reject) => {
@@ -152,6 +145,7 @@ async function get_all_fills(product, pages=null) {
     }
     return false
   }
+
   while( loop_condition() ) {
     console.log(`Getting page ${page_count+1}/${pages||'all'}`)
     let opts = {
@@ -230,7 +224,46 @@ const process_fills = ( fills ) => {
 */
 }
 
-get_all_fills('ETH-USD')
+/*
+get_all_fills('BTC-USD', 10)
 .then( (fills) => {
   process_fills(fills)
 })
+*/
+
+const get_accounts = () => {
+  return new Promise( (resolve, reject) => {
+    gdax_private.getAccounts( (error, resp, data) => {
+      if( error ) {
+        reject( error )
+        return
+      }
+      resolve( data )
+    })
+  })
+}
+
+const get_account_transfers = (account_id) => {
+  return new Promise( (resolve, reject) => {
+    console.log(account_id)
+    gdax_private.getAccountHistory( account_id, {type: 'transfer'}, (error, response, data) => {
+      if( error ) {
+        reject( error )
+        return
+      }
+      resolve( data )
+    } )
+  })
+}
+
+async function get_funding(coin) {
+  let accounts = await get_accounts()
+  let account = _.findWhere( accounts, {
+    currency: coin
+  } )
+
+  let fundings = await get_account_transfers(account.id)
+  console.log(fundings)
+}
+
+//get_funding('BTC')
