@@ -23,7 +23,7 @@
     "blessed": "^0.1.81",
     "blessed-contrib": "^4.8.5",
     "coinbase": "^2.0.6",
-    "gdax": "^0.4.2",
+    "coinbase/gdax-node": "^0.4.2",
     "moment": "^2.19.1",
     "underscore": "^1.8.3"
   }
