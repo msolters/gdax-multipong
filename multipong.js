@@ -2,78 +2,378 @@ fs = require("fs")
 settings = JSON.parse( fs.readFileSync("settings.json", "utf8") )
 const gdax = require('gdax')
 const _ = require('underscore')
-//const gdax_public = new gdax
+const moment = require('moment')
 const gdax_private = new gdax.AuthenticatedClient(settings.gdax.api.key, settings.gdax.api.secret, settings.gdax.api.passphrase, settings.gdax.api.uri)
+const blessed = require('blessed')
+const contrib = require('blessed-contrib')
+const loki = require('lokijs')
+const collections = {}
+let db
 
-const coin = 'ETH'
-settings.product_id = `${coin}-USD`
+const bucket_width = (settings.multipong.max_price - settings.multipong.min_price)/settings.multipong.num_buckets
+const cash_per_bucket = settings.multipong.initial_cash/settings.multipong.num_buckets
+let db_trades, db_buckets
+let midmarket_price = null
+let orderbook_synced = false
+let current_cash = settings.multipong.initial_cash
+let buy_count = 0
+let sell_count = 0
+settings.product_id = `${settings.multipong.coin}-USD`
 
-//  Listen for fills
-const gdax_ws = new gdax.WebsocketClient([settings.product_id],
-'wss://ws-feed.gdax.com',
-{
-  key: settings.gdax.api.key,
-  secret: settings.gdax.api.secret,
-  passphrase: settings.gdax.api.passphrase,
-}, {
-  heartbeat: true,
-  channels: ['user']
-})
+/**
+ *  Database
+ */
+function init_db() {
+  logger('sys_log', 'Initializing database')
+  db = new loki('db.json', {
+  	autoload: true,
+    autoupdate: true,
+  	autoloadCallback: init_db_cb,
+  	autosave: true,
+  	autosaveInterval: 2000
+  })
+}
+
+/**
+ *  Ensure a collection exists in the DB and that a reference to it exists
+ *  in the collections object.
+ */
+function db_set(collection) {
+  collections[collection] = db.getCollection(collection)
+  if( collections[collection] === null ) {
+    collections[collection] = db.addCollection(collection)
+  }
+}
+
+/**
+ *  Configure the collections we will need and do initial data loading from
+ *  disk.
+ *  Then start the app!
+ */
+function init_db_cb() {
+  db_set('trades')
+  db_set('buckets')
+  retrieve_completed_trades()
+  start_app()
+}
+
+/**
+ *  UI
+ */
+let screen
+const ui = {}
+
+const exit_gracefully = () => {
+  logger('sys_log', 'Exiting...')
+  db.close()
+  return process.exit(0)
+}
+
+const init_screen = () => {
+  if( settings.multipong.DEBUG ) return
+  screen = blessed.screen()
+  screen.key(['escape', 'q', 'C-c'], (ch, key) => {
+    exit_gracefully()
+  })
+  ui.overview_table = contrib.table({
+    top: '2%',
+    left: '2%',
+    width: '46%',
+    height: '13%',
+    label: 'Overview',
+    border: {type: 'line', fg: 'blue'},
+    fg: 'blue',
+    interactive: false,
+    columnSpacing: 4,               //in chars
+    columnWidth: [14, 12, 12, 12, 6, 6],  // in chars
+  })
+  ui.bucket_table = contrib.table({
+    keys: true,
+    fg: 'blue',
+    interactive: false,
+    label: 'Trade Buckets',
+    width: '46%',
+    height: '43%',
+    top: '2%',
+    left: '52%',
+    border: {type: "line", fg: "blue"},
+    columnSpacing: 4, //in chars
+    columnWidth: [12, 12, 12, 12, 36], /*in chars*/
+  })
+  ui.trade_log = contrib.log({
+    fg: "blue",
+    selectedFg: "blue",
+    label: 'Trade Log',
+    left: '2%',
+    top: '17%',
+    width: '46%',
+    height: '28%',
+    border: {type: "line", fg: "blue"}
+  })
+  ui.sys_log = contrib.log({
+    fg: "blue",
+    selectedFg: "blue",
+    label: 'System Log',
+    left: '2%',
+    top: '47%',
+    width: '96%',
+    height: '51%',
+    border: {type: "line", fg: "blue"}
+  })
+
+  screen.append(ui.overview_table)
+  screen.append(ui.bucket_table)
+  screen.append(ui.trade_log)
+  screen.append(ui.sys_log)
+  setInterval( () => {
+    refresh_overview_table()
+    refresh_bucket_table()
+    screen.render()
+  }, 300 )
+}
+
+const refresh_bucket_table = () => {
+  let table_data = []
+  for( let bucket of buckets ) {
+    let order_id = '-'
+    if( bucket.order_id ) order_id = bucket.order_id
+    let row = [`$${bucket.buy_price}`, `$${bucket.sell_price}`, bucket.trade_size, bucket.state, order_id]
+    table_data.push( row )
+  }
+
+  ui.bucket_table.setData({
+    headers: ['Buy Price', 'Sell Price', 'Order Size', 'State', 'Order ID'],
+    data: table_data
+  })
+}
+
+const refresh_overview_table = () => {
+  let current_price = 'Loading'
+  if( orderbook_synced ) current_price = `$${midmarket_price.toFixed(3)}`
+  ui.overview_table.setData({
+    headers: [`${settings.product_id} Price`, 'Initial Cash', 'Cash on Hand', 'Net Gain', 'Buys', 'Sells'],
+    data: [[current_price, `$${settings.multipong.initial_cash}`, `$${current_cash.toFixed(4)}`, `$${(current_cash-settings.multipong.initial_cash).toPrecision(4)}`, buy_count, sell_count]]
+  })
+}
+
+const logger = (target, content) => {
+  if( settings.multipong.DEBUG ) {
+    console.log(content)
+    return
+  }
+  if( typeof content !== 'string' ) {
+    content = JSON.stringify(content)
+  }
+  ui[target].log(content)
+}
+
+/**
+ *  Market Data
+ */
+const orderbook = new gdax.OrderbookSync([settings.product_id])
+
+const get_midmarket_price = () => {
+  let max_bid = orderbook.books[settings.product_id]._bids.max()
+  let min_ask = orderbook.books[settings.product_id]._asks.min()
+  if(!max_bid || !min_ask) {
+    return null
+  }
+  if(!orderbook_synced) {
+    orderbook_synced = true
+  }
+  max_bid = parseFloat(max_bid.price.toString())
+  min_ask = parseFloat(min_ask.price.toString())
+  let new_midmarket_price = (max_bid+min_ask)/2
+  return new_midmarket_price
+}
+
+const init_orderbook = () => {
+  logger('sys_log', `Loading ${settings.product_id} order book`)
+  setInterval( () => {
+    midmarket_price = get_midmarket_price()
+  }, settings.midmarket_price_period )
+}
+
+const wait_for_orderbook_sync = () => {
+  setTimeout( () => {
+    if( orderbook_synced ) {
+      init_trading()
+    } else {
+      wait_for_orderbook_sync()
+    }
+  }, 1000)
+}
+
+/**
+ *  Trading
+ */
+const gdax_ws = new gdax.WebsocketClient([settings.product_id], 'wss://ws-feed.gdax.com', {
+    key: settings.gdax.api.key,
+    secret: settings.gdax.api.secret,
+    passphrase: settings.gdax.api.passphrase,
+  }, {
+    heartbeat: true,
+    channels: ['user', 'heartbeat']
+  })
+
+const init_ws_stream = () => {
+  gdax_ws.on('message', (data) => {
+    if( data.type === "heartbeat" ) return
+    switch( data.type ) {
+      case "heartbeat":
+      case "subscriptions":
+       return
+       break
+      default:
+        process_message(data)
+        break
+    }
+  })
+  gdax_ws.on('error', (error) => {
+    logger('sys_log', error)
+  })
+}
+
+const handle_fill = ( data ) => {
+  let bucket = _.findWhere(buckets, {order_id: data.order_id})
+  if( !bucket ) return
+  data.trade_size = bucket.trade_size
+  data.usd_value = data.trade_size * parseFloat(data.price)
+  store_completed_trade( data )
+  switch( data.side ) {
+    case 'buy':
+      update_bucket(bucket, (b) => {
+        b.state = 'full'
+      })
+      break
+    case 'sell':
+      update_bucket(bucket, (b) => {
+        b.state = 'empty'
+      })
+      break
+  }
+}
+
+const apply_trade = ( trade ) => {
+  switch( trade.type ) {
+    case 'sell':
+      logger('trade_log', `[${moment(trade.created_at).format("MM/DD/YY hh:mm:ss a")}] Sell: +${trade.usd_value}`)
+      current_cash += trade.usd_value
+      sell_count++
+      break
+    case 'buy':
+      logger('trade_log', `[${moment(trade.created_at).format("MM/DD/YY hh:mm:ss a")}] Buy:  -${trade.usd_value}`)
+      current_cash -= trade.usd_value
+      buy_count++
+      break
+  }
+}
+
+const retrieve_completed_trades = () => {
+  logger('sys_log', 'Loading trade history')
+  let old_trades = collections.trades.chain()
+    .find()
+    .sort( (a, b) => {
+      // oldest -> newest
+      let date_a = new Date(a.created_at).valueOf()
+      let date_b = new Date(b.created_at).valueOf()
+      if( date_a === date_b ) {
+        return 0
+      } else if( date_a > date_b ) {
+        return 1
+      } else {
+        return -1
+      }
+    })
+    //.offset(100)
+    //.limit(25)
+    .data()
+  for( let trade of old_trades ) {
+    apply_trade( trade )
+  }
+}
+
+const store_completed_trade = ( trade_data ) => {
+  let trade_doc = collections.trades.insert({
+    type: trade_data.side,
+    usd_value: trade_data.usd_value,
+    created_at: new Date(trade_data.time),
+    order_id: trade_data.order_id,
+    trade_size: trade_data.trade_size,
+    price: trade_data.price
+  })
+  apply_trade( trade_doc )
+}
+
+const handle_cancel = (data) => {
+  let bucket = _.findWhere(buckets, {order_id: data.order_id})
+  if( !bucket ) return
+  switch( bucket.state ) {
+    case 'buying':
+    case 'ping':
+      update_bucket(bucket, (b) => {
+        b.state = 'empty'
+      })
+      break
+    case 'selling':
+    case 'pong':
+      update_bucket(bucket, (b) => {
+        b.state = 'full'
+      })
+      break
+  }
+}
 
 const process_message = (data) => {
+  logger('sys_log', data)
   switch( data.type ) {
-    case 'open':
-      //  order is ready!
-      break
-    case 'received':
-      break
-    case //filled:
-
+    case 'done':
+      switch( data.reason ) {
+        case 'filled':
+          handle_fill( data )
+          break
+        case 'canceled':
+          handle_cancel( data )
+          break
+      }
       break
   }
 }
 
-gdax_ws.on('message', (data) => {
-  console.log(data)
-  //process_message(data)
-})
-gdax_ws.on('error', (error) => {
-  console.error(error)
-})
+const compute_bucket_distribution = () => {
+  let buckets = []
+  for( let idx=0; idx<settings.multipong.num_buckets; idx++ ) {
+    let bucket = collections.buckets.findOne({idx: idx})
+    if( bucket ) {
+      buckets.push( bucket )
+      continue
+    }
 
-const total_cash = 150
-const num_buckets = 10
-const min_price = 1000
-const max_price = 2000
-const cash_per_bucket = total_cash/num_buckets
+    let min = settings.multipong.min_price + (idx*bucket_width)
+    let max = min + bucket_width
 
-//  Initialize buckets
-let buckets = {}
-for( let bkt_idx=0; bkt_idx<num_buckets; bkt_idx++ ) {
-  let min = min_price + (bkt_idx*cash_per_bucket)
-  let max = min + cash_per_bucket
-  let buy_price = min + (cash_per_bucket*0.25)
-  let sell_price = min + (cash_per_bucket*0.75)
-  let trade_size = cash_per_bucket/buy_price
-  trade_size = trade_size.toPrecision(7)
+    let buy_price = min - 0.01
+    let sell_price = max + 0.01
+    let trade_size = cash_per_bucket/buy_price
+    trade_size = trade_size.toPrecision(6)
 
-  buckets[bkt_idx] = {
-    min,
-    max,
-    available: true,
-    buy_price,
-    sell_price,
-    trade_size
+    bucket = {
+      state: 'empty',
+      idx,
+      min,
+      max,
+      buy_price,
+      sell_price,
+      trade_size,
+      order_id: null
+    }
+
+    bucket = collections.buckets.insert( bucket )
+    buckets.push( bucket )
   }
-  //console.log(trade_size* (sell_price - buy_price))
+  return buckets
 }
 
-let last_bucket = buckets[num_buckets-1]
-if( last_bucket.trade_size < 0.01 ) {
-  console.log(`Insufficient cash on hand!  We need $${last_bucket.buy_price * 0.01}`)
-}
-
-//  Cancel all open trades (just buys?)
 const limit_order = (side, product_id, price, size) => {
   return new Promise( (resolve, reject) => {
     let order = {
@@ -82,50 +382,171 @@ const limit_order = (side, product_id, price, size) => {
       product_id,
       type: 'limit'
     }
-    switch( side ) {
-      case 'buy':
-        gdax_private.buy(order, (error, response, data) => {
-          if( error ) {
-            reject(error)
-            return
-          }
-          resolve(data)
-        })
+    gdax_private[side](order, (error, response, data) => {
+      if( error ) {
+        reject(error)
+        return
+      }
+      if( data['message'] ) {
+        if( data['message'].indexOf('Order size is too small') !== -1 ) {
+          reject('Too small')
+          return
+        } else if( data['message'].indexOf('Insufficient funds') !== -1 ) {
+          reject('Insufficient funds')
+        }
+      }
+      resolve(data)
+    })
+  })
+}
+
+const handle_bucket_error = ( bucket, error ) => {
+  update_bucket(bucket, (b) => {
+    b.order_id = null
+  })
+
+  if( error === 'Too small' ) {
+    update_bucket(bucket, (b) => {
+      b.state = 'toosmall'
+    })
+    logger('sys_log', 'Disabling bucket due to order size being too small.')
+    return true
+  }
+
+  if( error === 'Insufficient funds' ) {
+    update_bucket(bucket, (b) => {
+      b.state = 'insufficientfunds'
+      b.nextcheck = new Date(new Date().valueOf() + 1000*30)
+    })
+    logger('sys_log', 'Insufficient funds to place buy order.')
+    return true
+  }
+
+  return false
+}
+
+const buy_bucket = ( bucket ) => {
+  update_bucket(bucket, (b) => {
+    b.state = 'buying'
+  })
+  logger('sys_log', `Buying  ${bucket.trade_size} at $${bucket.buy_price}\t($${bucket.buy_price*bucket.trade_size})`)
+  limit_order('buy', settings.product_id, bucket.buy_price, bucket.trade_size)
+  .then( (data) => {
+    logger('sys_log', data)
+    update_bucket(bucket, (b) => {
+      b.state = 'ping'
+      b.order_id = data.id
+    })
+  })
+  .catch( (error) => {
+    if( handle_bucket_error( bucket, error ) ) return
+    update_bucket(bucket, (b) => {
+      b.state = 'empty'
+    })
+    logger('sys_log', error)
+  })
+}
+
+const update_bucket = (bucket, mutation) => {
+  mutation(bucket)
+  collections.buckets.update(bucket)
+}
+
+/**
+ *  Verify if any orders have changed from what we have in the database.
+ */
+const validate_buckets = () => {
+  for( let bucket of buckets ) {
+    if( bucket.state === "buying" ) {
+      update_bucket(bucket, (b) => {
+        b.state = 'empty'
+      })
+    } else if( bucket.state === "selling" ) {
+      update_bucket(bucket, (b) => {
+        b.state = 'full'
+      })
+    }
+  }
+}
+
+const sell_bucket = ( bucket, high_price=null ) => {
+  let sell_price = high_price || bucket.sell_price
+  bucket.state = 'selling'
+  update_bucket(bucket, (b) => {
+    b.state = 'selling'
+  })
+  logger('sys_log', `Selling ${bucket.trade_size} at $${sell_price}\t($${sell_price*bucket.trade_size})`)
+  //return
+  limit_order('sell', settings.product_id, sell_price, bucket.trade_size )
+  .then( (data) => {
+    update_bucket(bucket, (b) => {
+      b.state = 'pong'
+      b.order_id = data.id
+    })
+  })
+  .catch( (error) => {
+    if( handle_bucket_error( bucket, error ) ) return
+    update_bucket(bucket, (b) => {
+      b.state = 'full'
+    })
+    logger('sys_log', error)
+  })
+}
+
+const trade_buckets = () => {
+  for( let bucket of buckets ) {
+    if( !midmarket_price ) {
+      logger('sys_log', `Midmarket price data unavailable. Skipping buy order for $${bucket.buy_price}.`)
+      return
+    }
+
+    switch( bucket.state ) {
+      case 'empty': // need to buy!
+        if( bucket.buy_price < midmarket_price ) {
+          buy_bucket(bucket)
+        } else {
+          logger('sys_log', `Cannot buy at $${bucket.buy_price} (Midmarket @ $${midmarket_price})`)
+        }
         break
-      case 'sell':
-        gdax_private.sell(order, (error, response, data) => {
-          if( error ) {
-            reject(error)
-            return
-          }
-          resolve(data)
-        })
+      case 'full': // need to sell!
+        if( bucket.sell_price < midmarket_price ) {
+          sell_bucket( bucket, midmarket_price )
+        } else {
+          sell_bucket( bucket )
+        }
+        break
+      case 'insufficientfunds':
+        if( new Date() >= new Date(bucket.nextcheck) ) {
+          logger('sys_log', `Bucket is ready again!`)
+          update_bucket(bucket, (b) => {
+            delete b.nextcheck
+            b.state = 'empty'
+          })
+        }
         break
     }
-  })
+  }
 }
 
-//  Send a buy order for each bucket
-const order_all_buckets = () => {
-  for( let b in buckets ) {
-    console.log(buckets[b])
-    limit_order('buy', settings.product_id, buckets[b].buy_price, buckets[b].trade_size)
-    .then( (data) => {
-      console.dir(data)
-      buckets[b].available = true
-      buckets[b].order_id = data.id
-    })
-    .catch( (error) => {
-      console.error(error)
-    })
-  })
+const init_trading = () => {
+  logger('sys_log', 'Beginning to trade.')
+  setInterval( () => {
+    trade_buckets()
+  }, 500)
 }
 
-/*
-limit_order('buy', 'BTC-USD', 2000, 0.1)
-.then( (data) => {
-  console.dir(data)
-})
-.catch( (error) => {
-  console.error(error)
-})*/
+//  Entry Point
+let buckets
+function start_app() {
+  init_orderbook()
+  buckets = compute_bucket_distribution()
+  validate_buckets()
+  //logger('sys_log', buckets)
+  //return
+  //buckets[0].state = 'full'
+  init_ws_stream()
+  wait_for_orderbook_sync()
+}
+
+init_screen()
+init_db()
