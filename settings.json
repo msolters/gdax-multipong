@@ -1,0 +1,24 @@
+{
+  "gdax": {
+    "api": {
+      "key": "",
+      "secret": "",
+      "passphrase": "",
+      "uri": "https://api.gdax.com"
+    }
+  },
+  "refresh_period": 5,
+  "midmarket_price_period": 200,
+  "coins": [
+    "BTC",
+    "ETH"
+  ],
+  "multipong": {
+    "coin": "BTC",
+    "initial_cash": 120,
+    "num_buckets": 2,
+    "min_price": 5770,
+    "max_price": 5780,
+    "DEBUG": false
+  }
+}
