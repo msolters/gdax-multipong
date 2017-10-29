@@ -238,7 +238,6 @@ const init_ws_stream = () => {
 const handle_fill = ( trade_data ) => {
   let bucket = _.findWhere(buckets, {order_id: trade_data.order_id})
   if( !bucket ) return
-  trade_data.trade_size = bucket.trade_size
   store_completed_trade( trade_data )
   switch( trade_data.side ) {
     case 'buy':
@@ -325,9 +324,10 @@ const process_message = (data) => {
           let trade_data = {
             created_at: new Date(data.time),
             side: data.side,
-            usd_value: parseFloat(data.trade_size) * parseFloat(data.price),
             order_id: data.order_id,
-            price: parseFloat( data.price )
+            price: parseFloat( data.price ),
+            trade_size: settings.multipong.trade_size,
+            usd_value: settings.multipong.trade_size * parseFloat(data.price),
           }
           handle_fill( trade_data )
           break
@@ -473,7 +473,7 @@ const get_order_by_id = ( order_id ) => {
 }
 
 const cancel_bucket = ( bucket ) => {
-  logger('sys_log', 'Cancelling bucket ${bucket.order_id}')
+  logger('sys_log', `Canceling bucket ${bucket.order_id}`)
   update_bucket( bucket, (b) => {
     b.state = 'canceling'
   })
@@ -506,10 +506,10 @@ async function validate_buckets() {
           let trade_data = {
             created_at: new Date(data.done_at),
             side: data.side,
-            usd_value: parseFloat(data.size) * parseFloat(data.price),
             order_id: data.id,
-            trade_size: bucket.trade_size,
-            price: parseFloat( data.price )
+            trade_size: settings.multipong.trade_size,
+            price: parseFloat( data.price ),
+            usd_value: settings.multipong.trade_size * parseFloat(data.price),
           }
           handle_fill( trade_data )
           break
