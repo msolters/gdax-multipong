@@ -93,12 +93,12 @@ const init_screen = () => {
     interactive: false,
     label: 'Trade Buckets',
     width: '46%',
-    height: '43%',
+    height: '96%',
     top: '2%',
     left: '52%',
     border: {type: "line", fg: "blue"},
     columnSpacing: 4, //in chars
-    columnWidth: [12, 12, 12, 12, 36], /*in chars*/
+    columnWidth: [12, 12, 12, 17, 36], /*in chars*/
   })
   ui.trade_log = contrib.log({
     fg: "blue",
@@ -116,7 +116,7 @@ const init_screen = () => {
     label: 'System Log',
     left: '2%',
     top: '47%',
-    width: '96%',
+    width: '46%',
     height: '51%',
     border: {type: "line", fg: "blue"}
   })
@@ -134,7 +134,8 @@ const init_screen = () => {
 
 const refresh_bucket_table = () => {
   let table_data = []
-  for( let bucket of buckets ) {
+  let non_empty_buckets = _.filter(buckets, (b) => b.state !== 'empty')
+  for( let bucket of _.sortBy(non_empty_buckets, (b) => -b.buy_price) ) {
     let order_id = '-'
     if( bucket.order_id ) order_id = bucket.order_id
     let row = [`$${bucket.buy_price}`, `$${bucket.sell_price}`, bucket.trade_size, bucket.state, order_id]
@@ -234,13 +235,11 @@ const init_ws_stream = () => {
   })
 }
 
-const handle_fill = ( data ) => {
-  let bucket = _.findWhere(buckets, {order_id: data.order_id})
+const handle_fill = ( trade_data ) => {
+  let bucket = _.findWhere(buckets, {order_id: trade_data.order_id})
   if( !bucket ) return
-  data.trade_size = bucket.trade_size
-  data.usd_value = data.trade_size * parseFloat(data.price)
-  store_completed_trade( data )
-  switch( data.side ) {
+  store_completed_trade( trade_data )
+  switch( trade_data.side ) {
     case 'buy':
       update_bucket(bucket, (b) => {
         b.state = 'full'
@@ -255,7 +254,7 @@ const handle_fill = ( data ) => {
 }
 
 const apply_trade = ( trade ) => {
-  switch( trade.type ) {
+  switch( trade.side ) {
     case 'sell':
       logger('trade_log', `[${moment(trade.created_at).format("MM/DD/YY hh:mm:ss a")}] Sell: +${trade.usd_value}`)
       current_cash += trade.usd_value
@@ -294,19 +293,12 @@ const retrieve_completed_trades = () => {
 }
 
 const store_completed_trade = ( trade_data ) => {
-  let trade_doc = collections.trades.insert({
-    type: trade_data.side,
-    usd_value: trade_data.usd_value,
-    created_at: new Date(trade_data.time),
-    order_id: trade_data.order_id,
-    trade_size: trade_data.trade_size,
-    price: trade_data.price
-  })
-  apply_trade( trade_doc )
+  collections.trades.insert( trade_data )
+  apply_trade( trade_data )
 }
 
-const handle_cancel = (data) => {
-  let bucket = _.findWhere(buckets, {order_id: data.order_id})
+const handle_cancel = (order_id) => {
+  let bucket = _.findWhere(buckets, {order_id: order_id})
   if( !bucket ) return
   switch( bucket.state ) {
     case 'buying':
@@ -330,10 +322,18 @@ const process_message = (data) => {
     case 'done':
       switch( data.reason ) {
         case 'filled':
-          handle_fill( data )
+          let trade_data = {
+            created_at: new Date(data.time),
+            side: data.side,
+            usd_value: parseFloat(data.trade_size) * parseFloat(data.price),
+            order_id: data.order_id,
+            trade_size: bucket.trade_size,
+            price: parseFloat( data.price )
+          }
+          handle_fill( trade_data )
           break
         case 'canceled':
-          handle_cancel( data )
+          handle_cancel( data.order_id )
           break
       }
       break
@@ -354,8 +354,7 @@ const compute_bucket_distribution = () => {
 
     let buy_price = min - 0.01
     let sell_price = max + 0.01
-    let trade_size = cash_per_bucket/buy_price
-    trade_size = trade_size.toPrecision(6)
+    let trade_size = settings.multipong.trade_size.toPrecision(6)//cash_per_bucket/buy_price
 
     bucket = {
       state: 'empty',
@@ -447,16 +446,41 @@ const buy_bucket = ( bucket ) => {
   })
 }
 
+/**
+ *  Update a property on a bucket and make sure it is persisted in the DB.
+ */
 const update_bucket = (bucket, mutation) => {
   mutation(bucket)
   collections.buckets.update(bucket)
 }
 
+const get_order_by_id = ( order_id ) => {
+  return new Promise( (resolve, reject) => {
+    gdax_private.getOrder( order_id, (error, response, data) => {
+      if( error ) {
+        reject( error )
+        return
+      }
+      resolve( data )
+    } )
+  })
+}
+
+const cancel_bucket = ( bucket ) => {
+  logger('sys_log', 'Cancelling bucket ${bucket.order_id}')
+  update_bucket( bucket, (b) => {
+    b.state = 'canceling'
+  })
+  gdax_private.cancelOrder(bucket.order_id)
+}
+
 /**
  *  Verify if any orders have changed from what we have in the database.
  */
-const validate_buckets = () => {
+async function validate_buckets() {
+  logger('sys_log', 'Syncing old orders with exchange')
   for( let bucket of buckets ) {
+    //  If we are in an in-between state, regress
     if( bucket.state === "buying" ) {
       update_bucket(bucket, (b) => {
         b.state = 'empty'
@@ -465,6 +489,28 @@ const validate_buckets = () => {
       update_bucket(bucket, (b) => {
         b.state = 'full'
       })
+    }
+
+    if( !bucket.order_id ) continue
+
+    let data = await get_order_by_id( bucket.order_id )
+    if( data.status === 'done' ) {
+      switch( data.done_reason ) {
+        case 'filled':
+          let trade_data = {
+            created_at: new Date(data.done_at),
+            side: data.side,
+            usd_value: parseFloat(data.size) * parseFloat(data.price),
+            order_id: data.id,
+            trade_size: bucket.trade_size,
+            price: parseFloat( data.price )
+          }
+          handle_fill( trade_data )
+          break
+        case 'canceled':
+          handle_cancel( data.id )
+          break
+      }
     }
   }
 }
@@ -502,17 +548,22 @@ const trade_buckets = () => {
 
     switch( bucket.state ) {
       case 'empty': // need to buy!
-        if( bucket.buy_price < midmarket_price ) {
+        if( bucket.buy_price < midmarket_price && midmarket_price < bucket.sell_price ) {
           buy_bucket(bucket)
-        } else {
+        } /*else {
           logger('sys_log', `Cannot buy at $${bucket.buy_price} (Midmarket @ $${midmarket_price})`)
-        }
+        }*/
         break
       case 'full': // need to sell!
         if( bucket.sell_price < midmarket_price ) {
           sell_bucket( bucket, midmarket_price )
         } else {
           sell_bucket( bucket )
+        }
+        break
+      case 'ping':
+        if( bucket.sell_price < midmarket_price ) {
+          cancel_bucket( bucket )
         }
         break
       case 'insufficientfunds':
@@ -541,9 +592,6 @@ function start_app() {
   init_orderbook()
   buckets = compute_bucket_distribution()
   validate_buckets()
-  //logger('sys_log', buckets)
-  //return
-  //buckets[0].state = 'full'
   init_ws_stream()
   wait_for_orderbook_sync()
 }

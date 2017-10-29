@@ -16,9 +16,10 @@
   "multipong": {
     "coin": "BTC",
     "initial_cash": 120,
-    "num_buckets": 2,
-    "min_price": 5770,
-    "max_price": 5780,
+    "num_buckets": 100,
+    "trade_size": 0.01,
+    "min_price": 5500,
+    "max_price": 5800,
     "DEBUG": false
   }
 }
