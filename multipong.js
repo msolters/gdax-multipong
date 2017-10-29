@@ -165,7 +165,7 @@ const logger = (target, content) => {
   if( typeof content !== 'string' ) {
     content = JSON.stringify(content)
   }
-  ui[target].log(content)
+  ui[target].log(`${moment().format('HH:mm:ss')} ${content}`)
 }
 
 /**
@@ -238,6 +238,7 @@ const init_ws_stream = () => {
 const handle_fill = ( trade_data ) => {
   let bucket = _.findWhere(buckets, {order_id: trade_data.order_id})
   if( !bucket ) return
+  trade_data.trade_size = bucket.trade_size
   store_completed_trade( trade_data )
   switch( trade_data.side ) {
     case 'buy':
@@ -300,17 +301,16 @@ const store_completed_trade = ( trade_data ) => {
 const handle_cancel = (order_id) => {
   let bucket = _.findWhere(buckets, {order_id: order_id})
   if( !bucket ) return
-  switch( bucket.state ) {
-    case 'buying':
-    case 'ping':
-      update_bucket(bucket, (b) => {
-        b.state = 'empty'
-      })
-      break
-    case 'selling':
-    case 'pong':
+  switch( bucket.side ) {
+    case 'sell':
       update_bucket(bucket, (b) => {
         b.state = 'full'
+      })
+      break
+    case 'buy':
+    default:
+      update_bucket(bucket, (b) => {
+        b.state = 'empty'
       })
       break
   }
@@ -327,7 +327,6 @@ const process_message = (data) => {
             side: data.side,
             usd_value: parseFloat(data.trade_size) * parseFloat(data.price),
             order_id: data.order_id,
-            trade_size: bucket.trade_size,
             price: parseFloat( data.price )
           }
           handle_fill( trade_data )
@@ -354,7 +353,7 @@ const compute_bucket_distribution = () => {
 
     let buy_price = min - 0.01
     let sell_price = max + 0.01
-    let trade_size = settings.multipong.trade_size.toPrecision(6)//cash_per_bucket/buy_price
+    let trade_size = parseFloat(settings.multipong.trade_size.toPrecision(6))
 
     bucket = {
       state: 'empty',
@@ -392,6 +391,8 @@ const limit_order = (side, product_id, price, size) => {
           return
         } else if( data['message'].indexOf('Insufficient funds') !== -1 ) {
           reject('Insufficient funds')
+        } else {
+          reject('Unknown error')
         }
       }
       resolve(data)
@@ -421,12 +422,17 @@ const handle_bucket_error = ( bucket, error ) => {
     return true
   }
 
+  if( error == 'Unknown error' ) {
+    return true
+  }
+
   return false
 }
 
 const buy_bucket = ( bucket ) => {
   update_bucket(bucket, (b) => {
     b.state = 'buying'
+    b.side = 'buy'
   })
   logger('sys_log', `Buying  ${bucket.trade_size} at $${bucket.buy_price}\t($${bucket.buy_price*bucket.trade_size})`)
   limit_order('buy', settings.product_id, bucket.buy_price, bucket.trade_size)
@@ -520,6 +526,7 @@ const sell_bucket = ( bucket, high_price=null ) => {
   bucket.state = 'selling'
   update_bucket(bucket, (b) => {
     b.state = 'selling'
+    b.side = 'sell'
   })
   logger('sys_log', `Selling ${bucket.trade_size} at $${sell_price}\t($${sell_price*bucket.trade_size})`)
   //return
