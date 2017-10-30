@@ -83,44 +83,44 @@ const init_screen = () => {
     width: '46%',
     height: '13%',
     label: 'Overview',
-    border: {type: 'line', fg: 'blue'},
-    fg: 'blue',
+    border: {type: 'line', fg: 'yellow'},
+    fg: 'yellow',
     interactive: false,
     columnSpacing: 4,               //in chars
     columnWidth: [14, 12, 12, 12, 12, 6, 6],  // in chars
   })
   ui.bucket_table = contrib.table({
     keys: true,
-    fg: 'blue',
+    fg: 'yellow',
     interactive: false,
     label: 'Trade Buckets',
     width: '46%',
     height: '96%',
     top: '2%',
     left: '52%',
-    border: {type: "line", fg: "blue"},
+    border: {type: "line", fg: "yellow"},
     columnSpacing: 4, //in chars
     columnWidth: [4, 12, 12, 12, 17, 36], /*in chars*/
   })
   ui.trade_log = contrib.log({
-    fg: "blue",
-    selectedFg: "blue",
+    fg: "yellow",
+    selectedFg: "yellow",
     label: 'Trade Log',
     left: '2%',
     top: '17%',
     width: '46%',
     height: '28%',
-    border: {type: "line", fg: "blue"}
+    border: {type: "line", fg: "yellow"}
   })
   ui.sys_log = contrib.log({
-    fg: "blue",
-    selectedFg: "blue",
+    fg: "yellow",
+    selectedFg: "yellow",
     label: 'System Log',
     left: '2%',
     top: '47%',
     width: '46%',
     height: '51%',
-    border: {type: "line", fg: "blue"}
+    border: {type: "line", fg: "yellow"}
   })
 
   screen.append(ui.overview_table)
@@ -498,7 +498,7 @@ const handle_bucket_error = ( bucket, error ) => {
       b.state = 'insufficientfunds'
       b.nextcheck = new Date(new Date().valueOf() + 1000*30)
     })
-    logger('sys_log', 'Insufficient funds to place buy order.')
+    logger('sys_log', `Insufficient funds to place ${bucket.side} order.`)
     return true
   }
 
@@ -552,6 +552,7 @@ const limit_order = (side, product_id, price, size) => {
         } else if( data['message'].indexOf('Insufficient funds') !== -1 ) {
           reject('Insufficient funds')
         } else {
+          logger('sys_log', data)
           reject('Unknown error')
         }
       }
@@ -646,10 +647,20 @@ const trade_buckets = () => {
       case 'insufficientfunds':
         if( new Date() >= new Date(bucket.nextcheck) ) {
           logger('sys_log', `Bucket is ready again!`)
-          update_bucket(bucket, (b) => {
-            delete b.nextcheck
-            b.state = 'empty'
-          })
+          switch( bucket.side ) {
+            case 'buy':
+              update_bucket(bucket, (b) => {
+                delete b.nextcheck
+                b.state = 'empty'
+              })
+              break
+            case 'sell':
+              update_bucket(bucket, (b) => {
+                delete b.nextcheck
+                b.state = 'full'
+              })
+              break
+          }
         }
         break
     }
