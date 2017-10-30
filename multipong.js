@@ -94,20 +94,20 @@ const init_screen = () => {
     fg: 'yellow',
     interactive: false,
     label: 'Trade Buckets',
-    width: '46%',
+    width: '48%',
     height: '96%',
     top: '2%',
-    left: '52%',
+    left: '50%',
     border: {type: "line", fg: "yellow"},
     columnSpacing: 4, //in chars
-    columnWidth: [4, 12, 12, 12, 17, 36], /*in chars*/
+    columnWidth: [4, 12, 12, 4, 17, 36], /*in chars*/
   })
   ui.trade_log = contrib.log({
     fg: "yellow",
     selectedFg: "yellow",
     label: 'Trade Log',
     left: '2%',
-    top: '17%',
+    top: '16%',
     width: '46%',
     height: '28%',
     border: {type: "line", fg: "yellow"}
@@ -145,7 +145,7 @@ const refresh_bucket_table = () => {
   }
 
   ui.bucket_table.setData({
-    headers: ['#', 'Buy Price', 'Sell Price', 'Order Size', 'State', 'Order ID'],
+    headers: ['#', 'Buy Price', 'Sell Price', 'Size', 'State', 'Order ID'],
     data: table_data
   })
 }
@@ -496,7 +496,7 @@ const handle_bucket_error = ( bucket, error ) => {
   if( error === 'Insufficient funds' ) {
     update_bucket(bucket, (b) => {
       b.state = 'insufficientfunds'
-      b.nextcheck = new Date(new Date().valueOf() + 3000)
+      b.nextcheck = new Date(new Date().valueOf() + 1000)
     })
     logger('sys_log', `Insufficient funds to place ${bucket.side} order.`)
     return true
@@ -535,7 +535,7 @@ const get_order_by_id = ( order_id ) => {
 const limit_order = (side, product_id, price, size) => {
   return new Promise( (resolve, reject) => {
     let order = {
-      price: price.toString(),    // fiat
+      price: price.toFixed(5),    // fiat
       size: size.toString(),      // coin
       product_id,
       type: 'limit'
