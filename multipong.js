@@ -19,6 +19,7 @@ let current_cash = settings.multipong.initial_cash
 let buy_count = 0
 let sell_count = 0
 settings.product_id = `${settings.multipong.coin}-${settings.multipong.fiat}`
+const log_file = fs.createWriteStream(`${settings.product_id}.log`)
 
 /**
  *  Database
@@ -66,6 +67,7 @@ const ui = {}
 const exit_gracefully = () => {
   logger('sys_log', 'Exiting...')
   db.close()
+  log_file.end()
   return process.exit(0)
 }
 
@@ -98,7 +100,7 @@ const init_screen = () => {
     left: '52%',
     border: {type: "line", fg: "blue"},
     columnSpacing: 4, //in chars
-    columnWidth: [12, 12, 12, 17, 36], /*in chars*/
+    columnWidth: [4, 12, 12, 12, 17, 36], /*in chars*/
   })
   ui.trade_log = contrib.log({
     fg: "blue",
@@ -138,12 +140,12 @@ const refresh_bucket_table = () => {
   for( let bucket of _.sortBy(non_empty_buckets, (b) => -b.buy_price) ) {
     let order_id = '-'
     if( bucket.order_id ) order_id = bucket.order_id
-    let row = [`$${bucket.buy_price}`, `$${bucket.sell_price}`, bucket.trade_size, bucket.state, order_id]
+    let row = [bucket.idx, `$${bucket.buy_price}`, `$${bucket.sell_price}`, bucket.trade_size, bucket.state, order_id]
     table_data.push( row )
   }
 
   ui.bucket_table.setData({
-    headers: ['Buy Price', 'Sell Price', 'Order Size', 'State', 'Order ID'],
+    headers: ['#', 'Buy Price', 'Sell Price', 'Order Size', 'State', 'Order ID'],
     data: table_data
   })
 }
@@ -160,12 +162,14 @@ const refresh_overview_table = () => {
 }
 
 const logger = (target, content) => {
+  if( typeof content !== 'string' ) {
+    content = JSON.stringify(content)
+  }
+  log_file.write( content )
+  log_file.write('\n')
   if( settings.multipong.DEBUG ) {
     console.log(content)
     return
-  }
-  if( typeof content !== 'string' ) {
-    content = JSON.stringify(content)
   }
   ui[target].log(`${moment().format('HH:mm:ss')} ${content}`)
 }
@@ -237,28 +241,6 @@ const init_ws_stream = () => {
   })
 }
 
-const handle_match = ( match_data ) => {
-  logger('sys_log', 'Handling partial match...')
-  let order_id = null
-  let new_state = null
-  switch( match_data.side ) {
-    case 'buy':
-      order_id = match_data.maker_order_id
-      new_state = 'partialbuy'
-      break
-    case 'sell':
-      order_id = match_data.taker_order_id
-      new_state = 'partialsell'
-      break
-  }
-  if( !order_id ) return
-  let bucket = _.findWhere( buckets, {order_id: order_id} )
-  if( !bucket ) return
-  update_bucket( bucket, (b) => {
-    b.state = new_state
-  })
-}
-
 const process_message = (data) => {
   logger('sys_log', data)
   switch( data.type ) {
@@ -286,18 +268,42 @@ const process_message = (data) => {
   }
 }
 
+const handle_match = ( match_data ) => {
+  logger('sys_log', 'Handling partial match...')
+  let order_id = null
+  let new_state = null
+  switch( match_data.side ) {
+    case 'buy':
+      order_id = match_data.maker_order_id
+      new_state = 'partialbuy'
+      break
+    case 'sell':
+      order_id = match_data.taker_order_id
+      new_state = 'partialsell'
+      break
+  }
+  if( !order_id ) return
+  let bucket = _.findWhere( buckets, {order_id: order_id} )
+  if( !bucket ) return
+  update_bucket( bucket, (b) => {
+    b.state = new_state
+  })
+}
+
 const handle_fill = ( trade_data ) => {
   let bucket = _.findWhere(buckets, {order_id: trade_data.order_id})
   if( !bucket ) return
   store_completed_trade( trade_data )
   switch( trade_data.side ) {
     case 'buy':
+      logger('sys_log', `Bought bucket ${bucket.idx}`)
       update_bucket(bucket, (b) => {
         b.state = 'full'
         b.order_id = null
       })
       break
     case 'sell':
+      logger('sys_log', `Sold bucket ${bucket.idx}`)
       update_bucket(bucket, (b) => {
         b.state = 'empty'
         b.order_id = null
@@ -309,7 +315,7 @@ const handle_fill = ( trade_data ) => {
 const handle_cancel = (order_id) => {
   let bucket = _.findWhere(buckets, {order_id: order_id})
   if( !bucket ) return
-  logger('sys_log', 'cancelling bucket...')
+  logger('sys_log', `Canceled bucket ${bucket.idx}`)
   switch( bucket.side ) {
     case 'sell':
       update_bucket(bucket, (b) => {
@@ -559,7 +565,7 @@ const buy_bucket = ( bucket ) => {
     b.state = 'buying'
     b.side = 'buy'
   })
-  logger('sys_log', `Buying  ${bucket.trade_size} at $${bucket.buy_price}\t($${bucket.buy_price*bucket.trade_size})`)
+  logger('sys_log', `Buying bucket ${bucket.idx}`)//` ${bucket.trade_size} at $${bucket.buy_price}\t($${bucket.buy_price*bucket.trade_size})`)
   limit_order('buy', settings.product_id, bucket.buy_price, bucket.trade_size)
   .then( (data) => {
     logger('sys_log', data)
@@ -584,7 +590,7 @@ const sell_bucket = ( bucket, high_price=null ) => {
     b.state = 'selling'
     b.side = 'sell'
   })
-  logger('sys_log', `Selling ${bucket.trade_size} at $${sell_price}\t($${sell_price*bucket.trade_size})`)
+  logger('sys_log', `Selling bucket ${bucket.idx}`)//` ${bucket.trade_size} at $${sell_price}\t($${sell_price*bucket.trade_size})`)
   //return
   limit_order('sell', settings.product_id, sell_price, bucket.trade_size )
   .then( (data) => {
@@ -603,7 +609,7 @@ const sell_bucket = ( bucket, high_price=null ) => {
 }
 
 const cancel_bucket = ( bucket ) => {
-  logger('sys_log', `Canceling bucket ${bucket.order_id}`)
+  logger('sys_log', `Canceling bucket ${bucket.idx}`)
   update_bucket( bucket, (b) => {
     b.state = 'canceling'
   })
@@ -619,7 +625,7 @@ const trade_buckets = () => {
 
     switch( bucket.state ) {
       case 'empty': // need to buy!
-        if( bucket.buy_price < (midmarket_price-0.01) && midmarket_price < bucket.sell_price ) {
+        if( bucket.buy_price < (midmarket_price-0.01) && midmarket_price < (bucket.sell_price+bucket_width) ) {
           buy_bucket(bucket)
         } /*else {
           logger('sys_log', `Cannot buy at $${bucket.buy_price} (Midmarket @ $${midmarket_price})`)
@@ -633,7 +639,7 @@ const trade_buckets = () => {
         }
         break
       case 'ping': // free up cash that's not about to be used
-        if( bucket.sell_price < midmarket_price ) {
+        if( (bucket.sell_price+bucket_width) < midmarket_price ) {
           cancel_bucket( bucket )
         }
         break
