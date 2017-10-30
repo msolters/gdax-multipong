@@ -496,7 +496,7 @@ const handle_bucket_error = ( bucket, error ) => {
   if( error === 'Insufficient funds' ) {
     update_bucket(bucket, (b) => {
       b.state = 'insufficientfunds'
-      b.nextcheck = new Date(new Date().valueOf() + 1000*30)
+      b.nextcheck = new Date(new Date().valueOf() + 3000)
     })
     logger('sys_log', `Insufficient funds to place ${bucket.side} order.`)
     return true
