@@ -545,7 +545,7 @@ const limit_order = (side, product_id, price, size) => {
       type: 'limit'
     }
     gdax_private[side](order, (error, response, data) => {
-      if( error ) {
+      if( error || data === null ) {
         reject(error)
         return
       }
