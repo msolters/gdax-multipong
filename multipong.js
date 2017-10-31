@@ -26,7 +26,7 @@ const log_file = fs.createWriteStream(`${settings.product_id}.log`)
  */
 function init_db() {
   logger('sys_log', 'Initializing database')
-  db = new loki('db.json', {
+  db = new loki(`${settings.product_id}.db`, {
   	autoload: true,
     autoupdate: true,
   	autoloadCallback: init_db_cb,
