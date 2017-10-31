@@ -395,7 +395,11 @@ async function validate_buckets() {
     }
 
     if( !bucket.order_id ) continue
+/*
+    sync_bucket_with_exchange = ( bucket ) => {
 
+    }
+    */
     let data = await get_order_by_id( bucket.order_id )
     if( data.message && data.message === 'NotFound' ) {
       handle_cancel( bucket.order_id )
@@ -459,8 +463,8 @@ const compute_bucket_distribution = () => {
     let min = settings.multipong.min_price + (idx*bucket_width)
     let max = min + bucket_width
 
-    let buy_price = parseFloat((min - 0.01).toFixed(4))
-    let sell_price = parseFloat((max + 0.01).toFixed(4))
+    let buy_price = parseFloat((min - 0.01).toFixed(2))
+    let sell_price = parseFloat((max + 0.01).toFixed(2))
     let trade_size = parseFloat(settings.multipong.trade_size.toPrecision(6))
 
     bucket = {
@@ -535,7 +539,7 @@ const get_order_by_id = ( order_id ) => {
 const limit_order = (side, product_id, price, size) => {
   return new Promise( (resolve, reject) => {
     let order = {
-      price: price.toFixed(5),    // fiat
+      price: price.toFixed(2),    // fiat
       size: size.toString(),      // coin
       product_id,
       type: 'limit'
@@ -562,6 +566,7 @@ const limit_order = (side, product_id, price, size) => {
 }
 
 const buy_bucket = ( bucket ) => {
+  if( bucket.buy_price > (midmarket_price - (bucket_width*0.3)) ) return
   update_bucket(bucket, (b) => {
     b.state = 'buying'
     b.side = 'buy'
@@ -613,6 +618,7 @@ const cancel_bucket = ( bucket ) => {
   logger('sys_log', `Canceling bucket ${bucket.idx}`)
   update_bucket( bucket, (b) => {
     b.state = 'canceling'
+    b.nextcheck = new Date(new Date().valueOf() + 10000)
   })
   gdax_private.cancelOrder(bucket.order_id)
 }
@@ -626,7 +632,7 @@ const trade_buckets = () => {
 
     switch( bucket.state ) {
       case 'empty': // need to buy!
-        if( bucket.buy_price < (midmarket_price-0.01) && midmarket_price < (bucket.sell_price+bucket_width) ) {
+        if( bucket.buy_price < (midmarket_price-0.01) && midmarket_price < (bucket.sell_price+2*bucket_width) ) {
           buy_bucket(bucket)
         } /*else {
           logger('sys_log', `Cannot buy at $${bucket.buy_price} (Midmarket @ $${midmarket_price})`)
@@ -634,19 +640,23 @@ const trade_buckets = () => {
         break
       case 'full': // need to sell!
         if( bucket.sell_price < midmarket_price ) {
-          sell_bucket( bucket, (midmarket_price+0.01) )
+          sell_bucket( bucket, (midmarket_price+3*bucket_width) )
         } else {
           sell_bucket( bucket )
         }
         break
       case 'ping': // free up cash that's not about to be used
-        if( (bucket.sell_price+bucket_width) < midmarket_price ) {
+        if( (bucket.sell_price+2*bucket_width) < midmarket_price ) {
           cancel_bucket( bucket )
         }
         break
+      case 'canceling': // check on buckets that may get stuck
+        if( new Date() >= new Date(bucket.nextcheck) ) {
+          //sync_bucket_with_exchange( bucket )
+        }
       case 'insufficientfunds':
         if( new Date() >= new Date(bucket.nextcheck) ) {
-          logger('sys_log', `Bucket is ready again!`)
+          logger('sys_log', `Bucket ${bucket.idx} is resetting from insufficientfunds.`)
           switch( bucket.side ) {
             case 'buy':
               update_bucket(bucket, (b) => {
