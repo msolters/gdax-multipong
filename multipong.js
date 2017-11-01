@@ -247,10 +247,70 @@ const init_ws_stream = () => {
   })
 }
 
+async function sync_bucket( bucket ) {
+  // Get order state from exchange
+  logger('sys_log', bucket)
+  let data
+try {
+  data = await get_order_by_id( bucket.order_id )
+} catch( e ) {
+  logger('sys_log', JSON.stringify(e))
+}
+logger('sys_log', data)
+  if( data.message && data.message === 'NotFound' ) {
+    handle_cancel( bucket.order_id )
+    return
+  }
+  switch( data.status ) {
+    case 'done':
+      switch( data.done_reason ) {
+        case 'filled':
+          let trade_data = {
+            created_at: new Date(data.done_at),
+            side: data.side,
+            order_id: data.id,
+            trade_size: settings.multipong.trade_size,
+            price: parseFloat( data.price ),
+            fiat_value: settings.multipong.trade_size * parseFloat(data.price),
+            fees: parseFloat(data.fill_fees)
+          }
+          handle_fill( trade_data )
+          break
+        case 'canceled':
+          handle_cancel( data.id )
+          break
+        }
+        break
+    default:
+      if( data.filled_size && parseFloat(data.filled_size) > 0 ) {
+        let new_state = null
+        switch( data.side ) {
+          case 'buy':
+            new_state = 'partialbuy'
+            break
+          case 'sell':
+            new_state = 'partialsell'
+            break
+        }
+        if( !new_state ) {
+          handle_cancel( data.id )
+          return
+        }
+        update_bucket( bucket, (b) => {
+          b.state = new_state
+        })
+      }
+      break
+  }
+}
+
 const process_message = (data) => {
   logger('sys_log', data)
   switch( data.type ) {
     case 'done':
+      let bucket = _.findWhere( buckets, {order_id: data.order_id} )
+      sync_bucket( bucket )
+/*
       switch( data.reason ) {
         case 'filled':
           let trade_data = {
@@ -267,6 +327,7 @@ const process_message = (data) => {
           handle_cancel( data.order_id )
           break
       }
+*/
       break
     case 'match':
       handle_match( data )
@@ -407,11 +468,7 @@ async function validate_buckets() {
     }
 
     if( !bucket.order_id ) continue
-/*
-    sync_bucket_with_exchange = ( bucket ) => {
-
-    }
-    */
+    //sync_bucket( bucket )
     let data = await get_order_by_id( bucket.order_id )
     if( data.message && data.message === 'NotFound' ) {
       handle_cancel( bucket.order_id )
@@ -428,6 +485,7 @@ async function validate_buckets() {
               trade_size: settings.multipong.trade_size,
               price: parseFloat( data.price ),
               fiat_value: settings.multipong.trade_size * parseFloat(data.price),
+              fees: parseFloat(data.fill_fees)
             }
             handle_fill( trade_data )
             break
@@ -617,6 +675,7 @@ const sell_bucket = ( bucket, high_price=null ) => {
   //return
   limit_order('sell', settings.product_id, sell_price, bucket )
   .then( (data) => {
+    logger('sys_log', data)
     update_bucket(bucket, (b) => {
       b.state = 'pong'
       b.order_id = data.id
@@ -642,7 +701,8 @@ const cancel_bucket = ( bucket ) => {
 }
 
 const trade_buckets = () => {
-  for( let bucket of buckets ) {
+  for( let idx = buckets.length-1; idx>=0; idx-- ) {
+    let bucket = buckets[idx]
     if( !midmarket_price.current ) {
       logger('sys_log', `Midmarket price data unavailable. Skipping buy order for $${bucket.buy_price}.`)
       return
