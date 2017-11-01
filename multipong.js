@@ -13,7 +13,10 @@ let db
 const bucket_width = (settings.multipong.max_price - settings.multipong.min_price)/settings.multipong.num_buckets
 const cash_per_bucket = settings.multipong.initial_cash/settings.multipong.num_buckets
 let db_trades, db_buckets
-let midmarket_price = null
+let midmarket_price = {
+  current: null,
+  velocity: 0.0
+}
 let orderbook_synced = false
 let current_cash = settings.multipong.initial_cash
 let buy_count = 0
@@ -87,7 +90,7 @@ const init_screen = () => {
     fg: 'yellow',
     interactive: false,
     columnSpacing: 4,               //in chars
-    columnWidth: [14, 12, 12, 12, 12, 6, 6],  // in chars
+    columnWidth: [14, 8, 12, 12, 12, 12, 6, 6],  // in chars
   })
   ui.bucket_table = contrib.table({
     keys: true,
@@ -152,12 +155,12 @@ const refresh_bucket_table = () => {
 
 const refresh_overview_table = () => {
   let current_price = 'Loading'
-  if( orderbook_synced ) current_price = `$${midmarket_price.toFixed(3)}`
+  if( orderbook_synced ) current_price = `$${midmarket_price.current.toFixed(3)}`
   let pong_sum = _.reduce(_.where(buckets, {state: 'pong'}), (sum, bucket) => sum+(bucket.sell_price*bucket.trade_size), 0)
   let net_gain = current_cash-settings.multipong.initial_cash
   ui.overview_table.setData({
-    headers: [`${settings.product_id} Price`, 'Initial Cash', 'Cash on Hand', 'Net Gain', 'Max Gain', 'Buys', 'Sells'],
-    data: [[current_price, `$${settings.multipong.initial_cash}`, `$${current_cash.toFixed(2)}`, `$${net_gain.toPrecision(4)}`, `$${(net_gain + pong_sum).toPrecision(4)}`, buy_count, sell_count]]
+    headers: [`P (${settings.product_id})`, 'dP/dt', 'Initial Cash', 'Cash on Hand', 'Net Gain', 'Max Gain', 'Buys', 'Sells'],
+    data: [[current_price, `$${midmarket_price.velocity}/s`, `$${settings.multipong.initial_cash}`, `$${current_cash.toFixed(2)}`, `$${net_gain.toPrecision(4)}`, `$${(net_gain + pong_sum).toPrecision(4)}`, buy_count, sell_count]]
   })
 }
 
@@ -179,7 +182,7 @@ const logger = (target, content) => {
  */
 const orderbook = new gdax.OrderbookSync([settings.product_id])
 
-const get_midmarket_price = () => {
+const set_midmarket_price = () => {
   let max_bid = orderbook.books[settings.product_id]._bids.max()
   let min_ask = orderbook.books[settings.product_id]._asks.min()
   if(!max_bid || !min_ask) {
@@ -191,14 +194,16 @@ const get_midmarket_price = () => {
   max_bid = parseFloat(max_bid.price.toString())
   min_ask = parseFloat(min_ask.price.toString())
   let new_midmarket_price = (max_bid+min_ask)/2
-  return new_midmarket_price
+  if( midmarket_price.current !== null ) {
+    midmarket_price.velocity = new_midmarket_price - midmarket_price.current
+    midmarket_price.velocity *= (1000/settings.multipong.midmarket_price_period)
+  }
+  midmarket_price.current = new_midmarket_price
 }
 
 const init_orderbook = () => {
   logger('sys_log', `Loading ${settings.product_id} order book`)
-  setInterval( () => {
-    midmarket_price = get_midmarket_price()
-  }, settings.multipong.midmarket_price_period )
+  setInterval( set_midmarket_price, settings.multipong.midmarket_price_period )
 }
 
 const wait_for_orderbook_sync = () => {
@@ -566,7 +571,7 @@ const limit_order = (side, product_id, price, size) => {
 }
 
 const buy_bucket = ( bucket ) => {
-  if( bucket.buy_price > (midmarket_price - (bucket_width*0.3)) ) return
+  if( bucket.buy_price > (midmarket_price.current - (bucket_width*0.3)) ) return
   update_bucket(bucket, (b) => {
     b.state = 'buying'
     b.side = 'buy'
@@ -625,28 +630,28 @@ const cancel_bucket = ( bucket ) => {
 
 const trade_buckets = () => {
   for( let bucket of buckets ) {
-    if( !midmarket_price ) {
+    if( !midmarket_price.current ) {
       logger('sys_log', `Midmarket price data unavailable. Skipping buy order for $${bucket.buy_price}.`)
       return
     }
 
     switch( bucket.state ) {
       case 'empty': // need to buy!
-        if( bucket.buy_price < (midmarket_price-0.01) && midmarket_price < (bucket.sell_price+2*bucket_width) ) {
+        if( bucket.buy_price < (midmarket_price.current-0.01) && midmarket_price.current < (bucket.sell_price+2*bucket_width) ) {
           buy_bucket(bucket)
         } /*else {
-          logger('sys_log', `Cannot buy at $${bucket.buy_price} (Midmarket @ $${midmarket_price})`)
+          logger('sys_log', `Cannot buy at $${bucket.buy_price} (Midmarket @ $${midmarket_price.current})`)
         }*/
         break
       case 'full': // need to sell!
-        if( bucket.sell_price < midmarket_price ) {
-          sell_bucket( bucket, (midmarket_price+3*bucket_width) )
+        if( bucket.sell_price < midmarket_price.current ) {
+          sell_bucket( bucket, (midmarket_price.current+3*bucket_width) )
         } else {
           sell_bucket( bucket )
         }
         break
       case 'ping': // free up cash that's not about to be used
-        if( (bucket.sell_price+2*bucket_width) < midmarket_price ) {
+        if( (bucket.sell_price+2*bucket_width) < midmarket_price.current ) {
           cancel_bucket( bucket )
         }
         break
