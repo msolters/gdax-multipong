@@ -1,8 +1,8 @@
 {
-  "name": "gdax-realtime-balance",
+  "name": "gdax-multipong",
   "version": "1.0.0",
-  "description": "Get the current total value of all GDAX holdings in USD",
-  "main": "index.js",
+  "description": "Multibucket range trading bot for GDAX",
+  "main": "multipong.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
