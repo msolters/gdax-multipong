@@ -161,7 +161,7 @@ const refresh_overview_table = () => {
   let net_gain = current_cash-settings.multipong.initial_cash-fees
   ui.overview_table.setData({
     headers: [`P (${settings.product_id})`, 'dP/dt', 'Initial Cash', 'Cash on Hand', 'Fees', 'Net Gain', 'Max Gain', 'B/S'],
-    data: [[current_price, `$${midmarket_price.velocity}/s`, `$${settings.multipong.initial_cash}`, `$${current_cash.toFixed(2)}`, `$${fees.toFixed(2)}`, `$${net_gain.toPrecision(4)}`, `$${(net_gain + pong_sum).toPrecision(4)}`, `${buy_count}/${sell_count}`]]
+    data: [[current_price, `$${midmarket_price.velocity.toPrecision(4)}/s`, `$${settings.multipong.initial_cash}`, `$${current_cash.toFixed(2)}`, `$${fees.toFixed(2)}`, `$${net_gain.toPrecision(4)}`, `$${(net_gain + pong_sum).toPrecision(4)}`, `${buy_count}/${sell_count}`]]
   })
 }
 
