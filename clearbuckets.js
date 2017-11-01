@@ -1,7 +1,8 @@
 const loki = require('lokijs')
 
+let db_file
 function init_db() {
-  db = new loki('db.json', {
+  db = new loki(db_file, {
   	autoload: true,
     autoupdate: true,
   	autoloadCallback: init_db_cb,
@@ -26,4 +27,11 @@ function init_db_cb() {
   }, 500)
 }
 
+if( process.argv.length < 2 ) {
+  console.log(`Please enter the currency trade database you'd like to reset as an argument!`)
+  console.log(`Usage:\tnode clearbuckets.js BTC | ETH | LTC`)
+  process.exit(0)
+}
+let coin = process.argv[2]
+db_file = `${coin.toUpperCase()}-USD.db`
 init_db()
