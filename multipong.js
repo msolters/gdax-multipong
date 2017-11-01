@@ -19,6 +19,7 @@ let midmarket_price = {
 }
 let orderbook_synced = false
 let current_cash = settings.multipong.initial_cash
+let fees = 0
 let buy_count = 0
 let sell_count = 0
 settings.product_id = `${settings.multipong.coin}-${settings.multipong.fiat}`
@@ -90,7 +91,7 @@ const init_screen = () => {
     fg: 'yellow',
     interactive: false,
     columnSpacing: 4,               //in chars
-    columnWidth: [14, 8, 12, 12, 12, 12, 6, 6],  // in chars
+    columnWidth: [14, 8, 12, 12, 8, 12, 12, 6],  // in chars
   })
   ui.bucket_table = contrib.table({
     keys: true,
@@ -157,10 +158,10 @@ const refresh_overview_table = () => {
   let current_price = 'Loading'
   if( orderbook_synced ) current_price = `$${midmarket_price.current.toFixed(3)}`
   let pong_sum = _.reduce(_.where(buckets, {state: 'pong'}), (sum, bucket) => sum+(bucket.sell_price*bucket.trade_size), 0)
-  let net_gain = current_cash-settings.multipong.initial_cash
+  let net_gain = current_cash-settings.multipong.initial_cash-fees
   ui.overview_table.setData({
-    headers: [`P (${settings.product_id})`, 'dP/dt', 'Initial Cash', 'Cash on Hand', 'Net Gain', 'Max Gain', 'Buys', 'Sells'],
-    data: [[current_price, `$${midmarket_price.velocity}/s`, `$${settings.multipong.initial_cash}`, `$${current_cash.toFixed(2)}`, `$${net_gain.toPrecision(4)}`, `$${(net_gain + pong_sum).toPrecision(4)}`, buy_count, sell_count]]
+    headers: [`P (${settings.product_id})`, 'dP/dt', 'Initial Cash', 'Cash on Hand', 'Fees', 'Net Gain', 'Max Gain', 'B/S'],
+    data: [[current_price, `$${midmarket_price.velocity}/s`, `$${settings.multipong.initial_cash}`, `$${current_cash.toFixed(2)}`, `$${fees.toFixed(2)}`, `$${net_gain.toPrecision(4)}`, `$${(net_gain + pong_sum).toPrecision(4)}`, `${buy_count}/${sell_count}`]]
   })
 }
 
@@ -298,6 +299,11 @@ const handle_match = ( match_data ) => {
 const handle_fill = ( trade_data ) => {
   let bucket = _.findWhere(buckets, {order_id: trade_data.order_id})
   if( !bucket ) return
+  if( bucket.fees > 0 ) {
+    logger('sys_log', `${trade_data.side} fees @ velocity $${bucket.price_velocity}/s`)
+  }
+  trade_data.price_velocity = bucket.price_velocity
+  trade_data.fees = bucket.fees
   store_completed_trade( trade_data )
   switch( trade_data.side ) {
     case 'buy':
@@ -363,6 +369,7 @@ const retrieve_completed_trades = () => {
 }
 
 const apply_trade = ( trade ) => {
+  fees += trade.fees
   switch( trade.side ) {
     case 'sell':
       logger('trade_log', `[${moment(trade.created_at).format("MM/DD/YY hh:mm:ss a")}] Sell: +${trade.fiat_value}`)
@@ -541,7 +548,11 @@ const get_order_by_id = ( order_id ) => {
 /**
  *  Send a limit order to GDAX
  */
-const limit_order = (side, product_id, price, size) => {
+const limit_order = (side, product_id, price, bucket) => {
+  update_bucket( bucket, (b) => {
+    b.price_velocity = midmarket_price.velocity
+  })
+  let size = bucket.trade_size
   return new Promise( (resolve, reject) => {
     let order = {
       price: price.toFixed(2),    // fiat
@@ -577,12 +588,13 @@ const buy_bucket = ( bucket ) => {
     b.side = 'buy'
   })
   logger('sys_log', `Buying bucket ${bucket.idx}`)//` ${bucket.trade_size} at $${bucket.buy_price}\t($${bucket.buy_price*bucket.trade_size})`)
-  limit_order('buy', settings.product_id, bucket.buy_price, bucket.trade_size)
+  limit_order('buy', settings.product_id, bucket.buy_price, bucket)
   .then( (data) => {
     logger('sys_log', data)
     update_bucket(bucket, (b) => {
       b.state = 'ping'
       b.order_id = data.id
+      b.fees = parseFloat( data.fill_fees ) || 0
     })
   })
   .catch( (error) => {
@@ -603,11 +615,12 @@ const sell_bucket = ( bucket, high_price=null ) => {
   })
   logger('sys_log', `Selling bucket ${bucket.idx}`)//` ${bucket.trade_size} at $${sell_price}\t($${sell_price*bucket.trade_size})`)
   //return
-  limit_order('sell', settings.product_id, sell_price, bucket.trade_size )
+  limit_order('sell', settings.product_id, sell_price, bucket )
   .then( (data) => {
     update_bucket(bucket, (b) => {
       b.state = 'pong'
       b.order_id = data.id
+      b.fees = parseFloat( data.fill_fees ) || 0
     })
   })
   .catch( (error) => {
