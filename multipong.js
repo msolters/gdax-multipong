@@ -2,7 +2,7 @@ fs = require("fs")
 settings = JSON.parse( fs.readFileSync("settings.json", "utf8") )
 const gdax = require('gdax')
 const _ = require('underscore')
-const moment = require('moment')
+const moment = require('moment-timezone')
 const gdax_private = new gdax.AuthenticatedClient(settings.gdax.api.key, settings.gdax.api.secret, settings.gdax.api.passphrase, settings.gdax.api.uri)
 const blessed = require('blessed')
 const contrib = require('blessed-contrib')
@@ -104,7 +104,7 @@ const init_screen = () => {
     left: '50%',
     border: {type: "line", fg: "yellow"},
     columnSpacing: 4, //in chars
-    columnWidth: [4, 12, 12, 4, 17, 36], /*in chars*/
+    columnWidth: [4, 12, 12, 12, 4, 17], /*in chars*/
   })
   ui.trade_log = contrib.log({
     fg: "yellow",
@@ -144,12 +144,14 @@ const refresh_bucket_table = () => {
   for( let bucket of _.sortBy(non_empty_buckets, (b) => -b.buy_price) ) {
     let order_id = '-'
     if( bucket.order_id ) order_id = bucket.order_id
-    let row = [bucket.idx, `$${bucket.buy_price}`, `$${bucket.sell_price}`, bucket.trade_size, bucket.state, order_id]
+    let current_sell_price = '-'
+    if( bucket.current_sell_price > 0 ) current_sell_price = `$${bucket.current_sell_price.toFixed(2)}`
+    let row = [bucket.idx, `$${bucket.buy_price}`, `$${bucket.sell_price}`, current_sell_price, bucket.trade_size, bucket.state]
     table_data.push( row )
   }
 
   ui.bucket_table.setData({
-    headers: ['#', 'Buy Price', 'Sell Price', 'Size', 'State', 'Order ID'],
+    headers: ['#', 'Low', 'High', 'Sell @', 'Size', 'State'],
     data: table_data
   })
 }
@@ -161,7 +163,7 @@ const refresh_overview_table = () => {
   let net_gain = current_cash-settings.multipong.initial_cash-fees
   ui.overview_table.setData({
     headers: [`P (${settings.product_id})`, 'dP/dt', 'Initial Cash', 'Cash on Hand', 'Fees', 'Net Gain', 'Max Gain', 'B/S'],
-    data: [[current_price, `$${midmarket_price.velocity.toPrecision(4)}/s`, `$${settings.multipong.initial_cash}`, `$${current_cash.toFixed(2)}`, `$${fees.toFixed(2)}`, `$${net_gain.toPrecision(4)}`, `$${(net_gain + pong_sum).toPrecision(4)}`, `${buy_count}/${sell_count}`]]
+    data: [[current_price, `$${midmarket_price.velocity.toPrecision(4)}/s`, `$${settings.multipong.initial_cash.toFixed(2)}`, `$${current_cash.toFixed(2)}`, `$${fees.toFixed(2)}`, `$${net_gain.toPrecision(4)}`, `$${(net_gain + pong_sum).toPrecision(4)}`, `${buy_count}/${sell_count}`]]
   })
 }
 
@@ -175,7 +177,7 @@ const logger = (target, content) => {
     console.log(content)
     return
   }
-  ui[target].log(`${moment().format('HH:mm:ss')} ${content}`)
+  ui[target].log(`${moment().tz(settings.tz).format('HH:mm:ss')} ${content}`)
 }
 
 /**
@@ -247,20 +249,27 @@ const init_ws_stream = () => {
   })
 }
 
+// Get order state from exchange
 async function sync_bucket( bucket ) {
-  // Get order state from exchange
-  logger('sys_log', bucket)
+  update_bucket( bucket, (b) => {
+    b.state = 'syncing'
+  })
   let data
-try {
-  data = await get_order_by_id( bucket.order_id )
-} catch( e ) {
-  logger('sys_log', JSON.stringify(e))
-}
-logger('sys_log', data)
+  try {
+    data = await get_order_by_id( bucket.order_id )
+  } catch( e ) {
+    logger('sys_log', JSON.stringify(e))
+  }
+  logger('sys_log', data)
   if( data.message && data.message === 'NotFound' ) {
-    handle_cancel( bucket.order_id )
+    if( bucket.sync_attempt > 5 ) {
+      handle_cancel( data.id )
+    } else {
+      mark_bucket_done( bucket, bucket.sync_attempt+1 )
+    }
     return
   }
+
   switch( data.status ) {
     case 'done':
       switch( data.done_reason ) {
@@ -304,12 +313,29 @@ logger('sys_log', data)
   }
 }
 
+const mark_bucket_done = ( bucket, attempt=0 ) => {
+  update_bucket( bucket, (b) => {
+    b.state = 'done'
+    b.nextcheck = new Date(new Date().valueOf() + 1000)
+    b.sync_attempt = attempt
+  })
+}
+
 const process_message = (data) => {
   logger('sys_log', data)
   switch( data.type ) {
     case 'done':
       let bucket = _.findWhere( buckets, {order_id: data.order_id} )
-      sync_bucket( bucket )
+      if( !bucket ) return
+      if( bucket.state === "canceling" ) {
+        if( data.reason === 'canceled' ) {
+          handle_cancel( bucket.order_id )
+        }
+      } else {
+        if( data.reason === 'filled' ) {
+          mark_bucket_done( bucket )
+        }
+      }
 /*
       switch( data.reason ) {
         case 'filled':
@@ -545,6 +571,7 @@ const compute_bucket_distribution = () => {
       buy_price,
       sell_price,
       trade_size,
+      current_sell_price: 0,
       order_id: null
     }
 
@@ -640,10 +667,11 @@ const limit_order = (side, product_id, price, bucket) => {
 }
 
 const buy_bucket = ( bucket ) => {
-  if( bucket.buy_price > (midmarket_price.current - (bucket_width*0.3)) ) return
+  //if( bucket.buy_price > (midmarket_price.current - (bucket_width*0.3)) ) return
   update_bucket(bucket, (b) => {
     b.state = 'buying'
     b.side = 'buy'
+    b.current_sell_price = 0
   })
   logger('sys_log', `Buying bucket ${bucket.idx}`)//` ${bucket.trade_size} at $${bucket.buy_price}\t($${bucket.buy_price*bucket.trade_size})`)
   limit_order('buy', settings.product_id, bucket.buy_price, bucket)
@@ -666,10 +694,10 @@ const buy_bucket = ( bucket ) => {
 
 const sell_bucket = ( bucket, high_price=null ) => {
   let sell_price = high_price || bucket.sell_price
-  bucket.state = 'selling'
   update_bucket(bucket, (b) => {
     b.state = 'selling'
     b.side = 'sell'
+    b.current_sell_price = sell_price
   })
   logger('sys_log', `Selling bucket ${bucket.idx}`)//` ${bucket.trade_size} at $${sell_price}\t($${sell_price*bucket.trade_size})`)
   //return
@@ -732,6 +760,11 @@ const trade_buckets = () => {
         if( new Date() >= new Date(bucket.nextcheck) ) {
           //sync_bucket_with_exchange( bucket )
         }
+      case 'done': // bucket needs to be synced with exchange to get final trade data
+        if( new Date() >= new Date(bucket.nextcheck) ) {
+          sync_bucket( bucket )
+        }
+        break
       case 'insufficientfunds':
         if( new Date() >= new Date(bucket.nextcheck) ) {
           logger('sys_log', `Bucket ${bucket.idx} is resetting from insufficientfunds.`)
