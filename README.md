@@ -16,9 +16,9 @@ You can quit at any time by pressing `Q`, `CTRL+C` or `ESC`.  Multipong will res
 ## Strategy
 Multipong uses a bucket strategy to perform high-frequency range trading between a minumum and maximum currency price in many smaller sub-ranges.  So for example, you can trade BTC between 5500USD and 6000USD using 100 buckets, and a trade size of 0.01BTC.
 
-In this example, the bot would buy 0.01BTC each time the price fell to `[5000, 5005, 5010, 5015, ...]`USD; if any of these buys is filled, the bot would then automatically place a sell order at `[5005, 5010, 5015, 5020, ...]`.  In other words, anytime the price changes one bucket width (`(max_price-min_price)/num_buckets = (6000-5500)/100 = 5USD`), the bot will automatically place a trade at the low and high end of each bucket.
+In this example, the bot would buy 0.01BTC each time the price fell to `[5500, 5505, 5510, 5515, ...]`USD; if any of these buys is filled, the bot would then automatically place a sell order at `[5505, 5510, 5515, 5520, ...]`.  In other words, anytime the price changes one bucket width (`(max_price-min_price)/num_buckets = (6000-5500)/100 = 5USD`), the bot will automatically place a trade at the low and high end of each bucket.
 
-The price might bounce between e.g. 5010 and 5015 for a few minutes; during this time, the bot can automatically make the same trade over and over; although 0.01BTC bought and sold with a $5 difference only yields $0.05 profit, multibot can do this thousands of times a day.
+The price might bounce between e.g. 5510 and 5515 for a few minutes; during this time, the bot can automatically make the same trade over and over; although 0.01BTC bought and sold with a $5 difference only yields $0.05 profit, multibot can do this thousands of times a day.
 
 Clearly, larger buckets can yield a larger profit per trade, but, the price would have to vary much more to make each trade happen, and are only good for highly volatile market conditions.  Likewise, buying/selling more BTC per bucket can increase profitability as well.
 
