@@ -251,6 +251,7 @@ const init_ws_stream = () => {
 
 // Get order state from exchange
 async function sync_bucket( bucket ) {
+  logger('sys_log', `Syncing bucket ${bucket.idx}`)
   if( !bucket.order_id ) {
     reset_bucket( bucket )
     return
@@ -263,6 +264,10 @@ async function sync_bucket( bucket ) {
     data = await get_order_by_id( bucket.order_id )
   } catch( e ) {
     logger('sys_log', JSON.stringify(e))
+    //reset_bucket( bucket )
+    //return
+    mark_bucket_done( bucket, bucket.sync_attempt+1 )
+    return
   }
   logger('sys_log', data)
   if( !data ) {
@@ -270,12 +275,16 @@ async function sync_bucket( bucket ) {
     return
   }
   if( data && data.message && data.message === 'NotFound' ) {
-    if( bucket.sync_attempt > 5 ) {
-      handle_cancel( data.id )
-    } else {
+    //if( bucket.sync_attempt > 5 ) {
+    //  handle_cancel( data.id )
+    //} else {
       mark_bucket_done( bucket, bucket.sync_attempt+1 )
-    }
+    //}
     return
+  }
+
+  if( bucket.sync_attempt > 5 ) {
+    reset_bucket( bucket )
   }
 
   switch( data.status ) {
@@ -298,6 +307,9 @@ async function sync_bucket( bucket ) {
           break
         }
         break
+    case 'open':
+      mark_bucket_done( bucket, bucket.sync_attempt+1 )
+      break
     default:
       if( data.filled_size && parseFloat(data.filled_size) > 0 ) {
         let new_state = null
