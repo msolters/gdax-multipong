@@ -386,11 +386,11 @@ const handle_match = ( match_data ) => {
 const handle_fill = ( trade_data ) => {
   let bucket = _.findWhere(buckets, {order_id: trade_data.order_id})
   if( !bucket ) return
+  /*
   if( bucket.fees > 0 ) {
     logger('sys_log', `${trade_data.side} fees @ velocity $${bucket.price_velocity}/s`)
-  }
+  }*/
   trade_data.price_velocity = bucket.price_velocity
-  trade_data.fees = bucket.fees
   store_completed_trade( trade_data )
   switch( trade_data.side ) {
     case 'buy':
@@ -494,7 +494,7 @@ async function validate_buckets() {
     }
 
     if( !bucket.order_id ) continue
-    //sync_bucket( bucket )
+
     let data = await get_order_by_id( bucket.order_id )
     if( data.message && data.message === 'NotFound' ) {
       handle_cancel( bucket.order_id )
@@ -667,7 +667,7 @@ const limit_order = (side, product_id, price, bucket) => {
 }
 
 const buy_bucket = ( bucket ) => {
-  //if( bucket.buy_price > (midmarket_price.current - (bucket_width*0.3)) ) return
+  if( bucket.buy_price > (midmarket_price.current - (bucket_width*0.3)) ) return
   update_bucket(bucket, (b) => {
     b.state = 'buying'
     b.side = 'buy'
