@@ -159,7 +159,7 @@ const refresh_bucket_table = () => {
 const refresh_overview_table = () => {
   let current_price = 'Loading'
   if( orderbook_synced ) current_price = `$${midmarket_price.current.toFixed(3)}`
-  let pong_sum = _.reduce(_.where(buckets, {state: 'pong'}), (sum, bucket) => sum+(bucket.sell_price*bucket.trade_size), 0)
+  let pong_sum = _.reduce(_.where(buckets, {state: 'pong'}), (sum, bucket) => sum+(bucket.current_sell_price*bucket.trade_size), 0)
   let net_gain = current_cash-settings.multipong.initial_cash-fees
   ui.overview_table.setData({
     headers: [`P (${settings.product_id})`, 'dP/dt', 'Initial Cash', 'Cash on Hand', 'Fees', 'Net Gain', 'Max Gain', 'B/S'],
@@ -251,6 +251,10 @@ const init_ws_stream = () => {
 
 // Get order state from exchange
 async function sync_bucket( bucket ) {
+  if( !bucket.order_id ) {
+    reset_bucket( bucket )
+    return
+  }
   update_bucket( bucket, (b) => {
     b.state = 'syncing'
   })
@@ -261,7 +265,11 @@ async function sync_bucket( bucket ) {
     logger('sys_log', JSON.stringify(e))
   }
   logger('sys_log', data)
-  if( data.message && data.message === 'NotFound' ) {
+  if( !data ) {
+    reset_bucket( bucket )
+    return
+  }
+  if( data && data.message && data.message === 'NotFound' ) {
     if( bucket.sync_attempt > 5 ) {
       handle_cancel( data.id )
     } else {
@@ -336,24 +344,6 @@ const process_message = (data) => {
           mark_bucket_done( bucket )
         }
       }
-/*
-      switch( data.reason ) {
-        case 'filled':
-          let trade_data = {
-            created_at: new Date(data.time),
-            side: data.side,
-            order_id: data.order_id,
-            price: parseFloat( data.price ),
-            trade_size: settings.multipong.trade_size,
-            fiat_value: settings.multipong.trade_size * parseFloat(data.price),
-          }
-          handle_fill( trade_data )
-          break
-        case 'canceled':
-          handle_cancel( data.order_id )
-          break
-      }
-*/
       break
     case 'match':
       handle_match( data )
@@ -410,10 +400,7 @@ const handle_fill = ( trade_data ) => {
   }
 }
 
-const handle_cancel = (order_id) => {
-  let bucket = _.findWhere(buckets, {order_id: order_id})
-  if( !bucket ) return
-  logger('sys_log', `Canceled bucket ${bucket.idx}`)
+const reset_bucket = ( bucket ) => {
   switch( bucket.side ) {
     case 'sell':
       update_bucket(bucket, (b) => {
@@ -429,6 +416,13 @@ const handle_cancel = (order_id) => {
       })
       break
   }
+}
+
+const handle_cancel = (order_id) => {
+  let bucket = _.findWhere(buckets, {order_id: order_id})
+  if( !bucket ) return
+  logger('sys_log', `Canceled bucket ${bucket.idx}`)
+  reset_bucket( bucket )
 }
 
 const retrieve_completed_trades = () => {
