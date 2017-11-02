@@ -18,7 +18,7 @@ Multipong uses a bucket strategy to perform high-frequency range trading between
 
 In this example, the bot would buy 0.01BTC each time the price fell to `[5500, 5505, 5510, 5515, ...]`USD; if any of these buys is filled, the bot would then automatically place a sell order at `[5505, 5510, 5515, 5520, ...]`.  In other words, anytime the price changes one bucket width (`(max_price-min_price)/num_buckets = (6000-5500)/100 = 5USD`), the bot will automatically place a trade at the low and high end of each bucket.
 
-The price might bounce between e.g. 5510 and 5515 for a few minutes; during this time, the bot can automatically make the same trade over and over; although 0.01BTC bought and sold with a $5 difference only yields $0.05 profit, multibot can do this thousands of times a day.
+The price might bounce between e.g. 5510 and 5515 for a few minutes; during this time, the bot can automatically make the same trade over and over; although 0.01BTC bought and sold with a $5 difference only yields $0.05 profit, multipong can do this thousands of times a day.
 
 Clearly, larger buckets can yield a larger profit per trade, but, the price would have to vary much more to make each trade happen, and are only good for highly volatile market conditions.  Likewise, buying/selling more BTC per bucket can increase profitability as well.
 
@@ -75,4 +75,4 @@ To reset Multipong entirely, just delete this file, update `settings.json` as yo
 
 If you want to update your bucket distribution (min/max/trade size/buckets), but retain your trade history, wait for all sells to complete, and then quit the app.  Manually cancel all buy orders in GDAX.  Then, update your `settings.json`.  Finally, run `node clearbuckets.js btc` (or other currency).  Then, just run the app again!  This will make a new bucket trading distribution in the DB, but leave all your old trade and profit history untouched.
 
-This software is provided free for your amusement, edification, and enrichment!  However, if you appreciated multipong, show your appreciation by sending a BTC to the author here: 1Nhdd9UCsv9dsabLLNRue8ecDN41yrSRdk
+This software is provided free for your amusement, edification, and enrichment!  However, if you enjoy multipong, you can show your appreciation by sending a BTC tip to the author here at `1Nhdd9UCsv9dsabLLNRue8ecDN41yrSRdk`
