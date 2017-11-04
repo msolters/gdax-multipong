@@ -7,17 +7,18 @@
       "uri": "https://api.gdax.com"
     }
   },
-  "tz": "EST",
+  "tz": "America/New_York",
   "multipong": {
-    "coin": "BTC",
+    "coin": "ETH",
     "fiat": "USD",
-    "initial_cash": 726.64,
-    "num_buckets": 300,
-    "trade_size": 0.02,
-    "min_price": 6000,
-    "max_price": 6750,
+    "initial_cash": 380.13,
+    "num_buckets": 100,
+    "trade_size": 0.1,
+    "min_price": 295,
+    "max_price": 302,
     "midmarket_price_period": 1,
     "trade_period": 50,
+    "greedy": false,
     "DEBUG": false
   }
 }

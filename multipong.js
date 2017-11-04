@@ -75,23 +75,55 @@ const exit_gracefully = () => {
   return process.exit(0)
 }
 
-const init_screen = () => {
-  if( settings.multipong.DEBUG ) return
-  screen = blessed.screen()
+const enabled_trades = {
+  buy: false,
+  sell: false
+}
+const init_keystrokes = () => {
   screen.key(['escape', 'q', 'C-c'], (ch, key) => {
     exit_gracefully()
   })
+  // toggle buys
+  screen.key(['b'], (ch, key) => {
+    enabled_trades.buy = !enabled_trades.buy
+    if( enabled_trades.buy ) {
+      logger('sys_log', 'Buying is now enabled.')
+    } else {
+      logger('sys_log', 'Buying is now disabled.')
+    }
+  })
+  // toggle sells
+  screen.key(['s'], (ch, key) => {
+    enabled_trades.sell = !enabled_trades.sell
+    if( enabled_trades.sell ) {
+      logger('sys_log', 'Selling is now enabled.')
+    } else {
+      logger('sys_log', 'Selling is now disabled.')
+    }
+  })
+  screen.key(['c'], (ch, key) => {
+    logger('sys_log', "Canceling all buys.")
+    _.forEach( _.where( buckets, {state: 'ping'} ), (bucket) => {
+      cancel_bucket( bucket )
+    })
+  })
+}
+
+const init_screen = () => {
+  if( settings.multipong.DEBUG ) return
+  screen = blessed.screen()
+  init_keystrokes()
   ui.overview_table = contrib.table({
     top: '2%',
     left: '2%',
-    width: '46%',
+    width: '96%',
     height: '13%',
     label: 'Overview',
     border: {type: 'line', fg: 'yellow'},
     fg: 'yellow',
     interactive: false,
     columnSpacing: 4,               //in chars
-    columnWidth: [14, 8, 12, 12, 8, 12, 12, 6],  // in chars
+    columnWidth: [14, 8, 12, 12, 8, 12, 12, 12, 12, 12, 12],  // in chars
   })
   ui.bucket_table = contrib.table({
     keys: true,
@@ -99,8 +131,8 @@ const init_screen = () => {
     interactive: false,
     label: 'Trade Buckets',
     width: '48%',
-    height: '96%',
-    top: '2%',
+    height: '82%',
+    top: '16%',
     left: '50%',
     border: {type: "line", fg: "yellow"},
     columnSpacing: 4, //in chars
@@ -146,7 +178,7 @@ const refresh_bucket_table = () => {
     if( bucket.order_id ) order_id = bucket.order_id
     let current_sell_price = '-'
     if( bucket.current_sell_price > 0 ) current_sell_price = `$${bucket.current_sell_price.toFixed(2)}`
-    let row = [bucket.idx, `$${bucket.buy_price}`, `$${bucket.sell_price}`, current_sell_price, bucket.trade_size, bucket.state]
+    let row = [bucket.idx, `$${bucket.buy_price.toFixed(2)}`, `$${bucket.sell_price.toFixed(2)}`, current_sell_price, bucket.trade_size, bucket.state]
     table_data.push( row )
   }
 
@@ -162,8 +194,8 @@ const refresh_overview_table = () => {
   let pong_sum = _.reduce(_.where(buckets, {state: 'pong'}), (sum, bucket) => sum+(bucket.current_sell_price*bucket.trade_size), 0)
   let net_gain = current_cash-settings.multipong.initial_cash-fees
   ui.overview_table.setData({
-    headers: [`P (${settings.product_id})`, 'dP/dt', 'Initial Cash', 'Cash on Hand', 'Fees', 'Net Gain', 'Max Gain', 'B/S'],
-    data: [[current_price, `$${midmarket_price.velocity.toPrecision(4)}/s`, `$${settings.multipong.initial_cash.toFixed(2)}`, `$${current_cash.toFixed(2)}`, `$${fees.toFixed(2)}`, `$${net_gain.toPrecision(4)}`, `$${(net_gain + pong_sum).toPrecision(4)}`, `${buy_count}/${sell_count}`]]
+    headers: [`P (${settings.product_id})`, 'dP/dt', 'Initial Cash', 'Cash on Hand', 'Fees', 'Net Gain', 'Max Gain', 'Buys', 'Sells', 'Min', 'Max'],
+    data: [[current_price, `$${midmarket_price.velocity.toPrecision(4)}/s`, `$${settings.multipong.initial_cash.toFixed(2)}`, `$${current_cash.toFixed(2)}`, `$${fees.toFixed(2)}`, `$${net_gain.toPrecision(4)}`, `$${(net_gain + pong_sum).toPrecision(4)}`, `${(enabled_trades.buy ? 'On' : 'Off')} (${buy_count})`, `${(enabled_trades.sell ? 'On' : 'Off')} (${sell_count})`, `$${settings.multipong.min_price.toFixed(2)}`, `$${settings.multipong.max_price.toFixed(2)}`]]
   })
 }
 
@@ -673,7 +705,11 @@ const limit_order = (side, product_id, price, bucket) => {
 }
 
 const buy_bucket = ( bucket ) => {
+  if( !enabled_trades.buy ) return
   if( bucket.buy_price > (midmarket_price.current - (bucket_width*0.3)) ) return
+  if( !settings.multipong.greedy ) {
+    if( bucket.buy_price * bucket.trade_size > current_cash ) return
+  }
   update_bucket(bucket, (b) => {
     b.state = 'buying'
     b.side = 'buy'
@@ -699,6 +735,7 @@ const buy_bucket = ( bucket ) => {
 }
 
 const sell_bucket = ( bucket, high_price=null ) => {
+  if( !enabled_trades.sell ) return
   let sell_price = high_price || bucket.sell_price
   update_bucket(bucket, (b) => {
     b.state = 'selling'
@@ -795,7 +832,9 @@ const trade_buckets = () => {
 }
 
 const init_trading = () => {
-  logger('sys_log', 'Beginning to trade.')
+  logger('sys_log', 'Trade engine initialized.')
+  logger('sys_log', 'Press "b" to enable crypto buys.')
+  logger('sys_log', 'Press "s" to enable crypto sells.')
   setInterval( () => {
     trade_buckets()
   }, settings.multipong.trade_period)
