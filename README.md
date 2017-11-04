@@ -14,13 +14,13 @@ You will need
 You can quit at any time by pressing `Q`, `CTRL+C` or `ESC`.  Multipong will resync trades when it starts up next.
 
 ## Strategy
-Multipong uses a bucket strategy to perform high-frequency range trading between a minumum and maximum currency price in many smaller sub-ranges.  So for example, you can trade BTC between 5500USD and 6000USD using 100 buckets, and a trade size of 0.01BTC.
+Multipong uses a bucket strategy to perform high-frequency range trading between a minimum and maximum currency price in many smaller sub-ranges.  So for example, you can trade BTC between 5500USD and 6000USD using 100 buckets, and a trade size of 0.01BTC.
 
 In this example, the bot would buy 0.01BTC each time the price fell to `[5500, 5505, 5510, 5515, ...]`USD; if any of these buys is filled, the bot would then automatically place a sell order at `[5505, 5510, 5515, 5520, ...]`.  In other words, anytime the price changes one bucket width (`(max_price-min_price)/num_buckets = (6000-5500)/100 = 5USD`), the bot will automatically place a trade at the low and high end of each bucket.
 
 The price might bounce between e.g. 5510 and 5515 for a few minutes; during this time, the bot can automatically make the same trade over and over; although 0.01BTC bought and sold with a $5 difference only yields $0.05 profit, multipong can do this thousands of times a day.
 
-Clearly, larger buckets can yield a larger profit per trade, but, the price would have to vary much more to make each trade happen, and are only good for highly volatile market conditions.  Likewise, buying/selling more BTC per bucket can increase profitability as well.
+Clearly, deeper buckets can yield a larger profit per trade, but, the price would have to vary much more to make each trade happen, and are only good for highly volatile market conditions.  Likewise, buying/selling more BTC per bucket can increase profitability as well.
 
 The bucket strategy is helpful in case the currency price falls after buying some BTC.  Say the price is 5995USD and we buy 0.01BTC; while we wait for the price to hit 6000USD and make a sale, what if the price falls?  Since each bucket can only buy once, we are guaranteed to still have buckets at lower prices that will continue to trade, making money, while our earlier gamble is waiting to be realized.  This allows us to keep making money across a wide price range instead of putting all our eggs into one basket.
 
