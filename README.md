@@ -11,7 +11,13 @@ You will need
 1.  Set your currency and buckets in `settings.json` (more below)
 1.  `node multipong.js`
 
-You can quit at any time by pressing `Q`, `CTRL+C` or `ESC`.  Multipong will resync trades when it starts up next.
+To begin buying and selling, press the "b" and "s" keys.
+
+## Commands
+*  "c" - Cancel all pending buys.  Note, if buying is "on", these orders will be almost instantly-replaced.  Turn off buying before canceling any orders!
+*  "b" - Toggle buying on and off
+*  "s" - Toggle selling on and off
+*  "q", "ESC", or "CTRL+C" - Exit Multipong
 
 ## Strategy
 Multipong uses a bucket strategy to perform high-frequency range trading between a minimum and maximum currency price in many smaller sub-ranges.
