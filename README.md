@@ -14,10 +14,10 @@ You will need
 To begin buying and selling, press the "b" and "s" keys.
 
 ## Commands
-*  "c" - Cancel all pending buys.  Note, if buying is "on", these orders will be almost instantly-replaced.  Turn off buying before canceling any orders!
-*  "b" - Toggle buying on and off
-*  "s" - Toggle selling on and off
-*  "q", "ESC", or "CTRL+C" - Exit Multipong
+*  `c` - Cancel all pending buys.  Note, if buying is "on", these orders will be almost instantly-replaced.  Turn off buying before canceling any orders!
+*  `b` - Toggle buying on and off
+*  `s` - Toggle selling on and off
+*  `q`, `ESC`, or `CTRL+C` - Exit Multipong
 
 ## Strategy
 Multipong uses a bucket strategy to perform high-frequency range trading between a minimum and maximum currency price in many smaller sub-ranges.
