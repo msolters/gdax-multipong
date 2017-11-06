@@ -49,7 +49,6 @@ Here's an example `settings.json`:
     "max_price": 6750,
     "midmarket_price_period": 1,
     "trade_period": 50,
-    "DEBUG": false
   }
 }
 ```

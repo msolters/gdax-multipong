@@ -1,24 +1,16 @@
 {
-  "gdax": {
-    "api": {
-      "key": "",
-      "secret": "",
-      "passphrase": "",
-      "uri": "https://api.gdax.com"
-    }
-  },
   "tz": "America/New_York",
   "multipong": {
     "coin": "ETH",
     "fiat": "USD",
-    "initial_cash": 380.13,
-    "num_buckets": 100,
+    "initial_cash": 100,
+    "greedy": false,
+    "num_buckets": 10,
     "trade_size": 0.1,
     "min_price": 295,
-    "max_price": 302,
+    "max_price": 296,
+    "bucket_runway": 2,
     "midmarket_price_period": 1,
-    "trade_period": 50,
-    "greedy": false,
-    "DEBUG": false
+    "trade_period": 50
   }
 }
