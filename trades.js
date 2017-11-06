@@ -266,6 +266,7 @@ const reset_trade = (trade) => {
 
 const buy_trade = (trade) => {
   if( !trade_data.buys.enabled ) return
+  if( !settings.multipong.greedy && trade.buy.price * trade.size > settings.multipong.initial_cash ) return
   update( trade, (t) => {
     t.buy.pending = true
     t.side = 'buy'
@@ -386,8 +387,6 @@ const wait_for_all_trades_to_sync = exports.wait_for_all_trades_to_sync = () => 
     let timer
     function check_ready() {
       let synced_trades = _.filter( _.values(exports.trades), (t) => !t.sync_status.needs_sync)
-      ui.logger('sys_log', 'derp')
-      ui.logger('sys_log', synced_trades)
       if( synced_trades && synced_trades.length === 0 ) {
         clearInterval(timer)
         resolve()
