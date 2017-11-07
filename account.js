@@ -11,7 +11,8 @@ const load = exports.load = () => {
       profit: 0,
       fees: 0,
       buy_count: 0,
-      sell_count: 0
+      sell_count: 0,
+      current_cash: settings.multipong.initial_cash
     }
     exports.account = db.collections.account.insert( new_account )
   }

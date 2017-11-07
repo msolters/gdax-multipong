@@ -4,15 +4,7 @@ exports = module.exports = {}
 
 exports.trades = {}
 
-let fees = 0
-let buy_count = 0
-let sell_count = 0
-
 const reset = exports.reset = () => {
-  fees = 0
-  buy_count = 0
-  sell_count = 0
-  settings.current_cash = settings.multipong.initial_cash
   exports.trades = {}
 }
 
@@ -27,7 +19,7 @@ const load = exports.load = () => {
     exports.trades[trade.trade_id] = trade
   }
   for( let trade of _.values(exports.trades) ) {
-    mark_trade_for_sync( trade )
+    mark_trade_for_sync( trade, true )
   }
 }
 
@@ -45,7 +37,8 @@ const create_trade = exports.create_trade = (trade_size, buy_price, sell_price) 
       settled: false,
       price: buy_price,
       executed_price: null,
-      fees: 0
+      fees: 0,
+      next_attempt: new Date()
     },
     sell: {
       order_id: null,
@@ -53,7 +46,8 @@ const create_trade = exports.create_trade = (trade_size, buy_price, sell_price) 
       settled: false,
       price: sell_price,
       executed_price: null,
-      fees: 0
+      fees: 0,
+      next_attempt: new Date()
     },
     settled: false,
     state: 'empty',
@@ -81,6 +75,7 @@ const trade_fill = (trade, fill_data) => {
       })
       account.update( account.account, (a) => {
         a.buy_count++
+        a.current_cash -= fill_data.fiat_value
       })
       break
     case 'sell':
@@ -93,6 +88,7 @@ const trade_fill = (trade, fill_data) => {
       })
       account.update( account.account, (a) => {
         a.sell_count++
+        a.current_cash += fill_data.fiat_value
       })
       break
   }
@@ -137,12 +133,28 @@ const trade_open = ( trade ) => {
   }
 }
 
-const mark_trade_for_sync = exports.mark_trade_for_sync = (trade) => {
+const trade_canceled = ( trade ) => {
+  switch( trade.side ) {
+    case 'buy':
+      update(trade, (t) => {
+        t.state = 'canceled'
+        t.settled = true
+        t.active_order_id = null
+      })
+      break
+    case 'sell':
+      reset_order( trade )
+      break
+  }
+}
+
+const mark_trade_for_sync = exports.mark_trade_for_sync = (trade, force=false) => {
+  //if( !force && (trade.sync_status.syncing || trade.sync_status.needs_sync) ) return
   update(trade, (t) => {
     t.sync_status.syncing = false
     t.sync_status.needs_sync = true
     t.sync_status.retries = 0
-    t.sync_status.next_sync = new Date( new Date().valueOf() + 1000 )
+    t.sync_status.next_sync = new Date( new Date().valueOf() + 5000 )
   })
 }
 
@@ -163,6 +175,7 @@ exports.sync_trade = async function sync_trade( trade ) {
   let order_id = trade.active_order_id
   // If there's nothing to sync...
   if( !order_id ) {
+    reset_trade(trade)
     mark_trade_sync_complete( trade )
     return
   }
@@ -221,7 +234,7 @@ exports.sync_trade = async function sync_trade( trade ) {
           trade_fill( trade, fill_data )
           break
         case 'canceled':
-          reset_trade( trade )
+          trade_canceled( trade )
           break
         }
         break
@@ -264,6 +277,36 @@ const reset_trade = (trade) => {
   }
 }
 
+const handle_trade_error = ( trade, error ) => {
+  /*
+  update(trade, (t) => {
+    t[t.side].order_id = null
+    t
+  })
+  if( error === 'Too small' ) {
+    update_bucket(bucket, (b) => {
+      b.state = 'toosmall'
+    })
+    logger('sys_log', 'Disabling bucket due to order size being too small.')
+    return true
+  }
+*/
+  if( error === 'Insufficient funds' ) {
+    update(trade, (t) => {
+      //t[t.side].state = 'insufficientfunds'
+      t[t.side].next_attempt = new Date(new Date().valueOf() + 3000)
+    })
+    ui.logger('sys_log', `Insufficient funds to place ${trade.side} order for trade ${trade.trade_id}.`)
+    return true
+  }
+
+  if( error == 'Unknown error' ) {
+    return false
+  }
+
+  return false
+}
+
 const buy_trade = (trade) => {
   if( !trade_data.buys.enabled ) return
   if( !settings.multipong.greedy && trade.buy.price * trade.size > settings.multipong.initial_cash ) return
@@ -282,6 +325,7 @@ const buy_trade = (trade) => {
     } )
   })
   .catch( (error) => {
+    handle_trade_error( trade, error )
     reset_trade(trade)
     ui.logger('sys_log', error)
   })
@@ -310,7 +354,7 @@ const sell_trade = ( trade ) => {
     })
   })
   .catch( (error) => {
-    //if( handle_bucket_error( bucket, error ) ) return
+    handle_trade_error( trade, error )
     reset_trade(trade)
     ui.logger('sys_log', error)
   })
@@ -330,6 +374,7 @@ const cancel_trade = exports.cancel_trade = (trade, cancel_buy=true, cancel_sell
   update(trade, (t) => {
     t.state = 'canceling'
   })
+  mark_trade_for_sync( trade )
 
   if( cancel_buy ) {
     if( trade.buy.order_id && trade.buy.pending === true ) {
@@ -342,6 +387,7 @@ const cancel_trade = exports.cancel_trade = (trade, cancel_buy=true, cancel_sell
       gdax.cancel_order( trade.sell.order_id )
     }
   }
+
 }
 
 const cancel_all_buys = exports.cancel_all_buys = () => {
@@ -353,6 +399,7 @@ const cancel_all_buys = exports.cancel_all_buys = () => {
 
 const delete_trade = (trade) => {
   let trade_id = trade.trade_id
+  delete exports.trades[trade_id]
   ui.logger('sys_log', `Deleting unused trade ${trade_id}`)
   let bucket = _.findWhere( buckets.buckets, {trade_id: trade_id} )
   if( bucket ) {
@@ -361,7 +408,6 @@ const delete_trade = (trade) => {
     })
   }
   db.collections.trades.findAndRemove({trade_id: trade_id})
-  delete exports.trades[trade_id]
 }
 
 const apply_trade = ( trade ) => {
@@ -374,11 +420,7 @@ const apply_trade = ( trade ) => {
   //  Settle the trade
   update(trade, (t) => {
     t.settled = true
-  })
-
-  //  Delete settled trades from trades array
-  _.forEach( _.filter( _.values(exports.trades), (t) => !t.settled), (t) => {
-    delete exports.trades[trade_id]
+    t.state = 'settled'
   })
 }
 
@@ -408,12 +450,18 @@ const process_trades = exports.process_trades = () => {
     switch( trade.state ) {
       case 'empty':
         if( buckets.valid_buy_price(trade.buy.price) ) {
-          if( !trade.buy.order_id && !trade.buy.pending ) {
+          if( !trade.buy.order_id && !trade.buy.pending /*&& (trade.buy.next_attempt === null || trade.buy.next_attempt < new Date())*/ ) {
             buy_trade( trade )
           }
         } else {
           //  Delete this trade!
           delete_trade( trade )
+        }
+        break
+      case 'ping':
+        if( !buckets.valid_buy_price(trade.buy.price) ) {
+          //  Delete this trade!
+          cancel_trade( trade )
         }
         break
       case 'full':
@@ -424,6 +472,16 @@ const process_trades = exports.process_trades = () => {
       case 'complete':
         apply_trade( trade )
         break
+      case 'settled':
+        delete_trade( trade )
+        break
+      case 'canceled':
+        if( buckets.valid_buy_price(trade.buy.price) ) {
+          reset_trade( trade )
+        } else {
+          delete_trade( trade )
+        }
+        break
       default:
         break
     }
@@ -432,6 +490,6 @@ const process_trades = exports.process_trades = () => {
 
 const update = (trade, mutator) => {
   mutator(trade)
-  ui.logger('sys_log', `update_trade: ${JSON.stringify(trade)}`)
+  //ui.logger('sys_log', `update_trade: ${JSON.stringify(trade)}`)
   db.collections.trades.update( trade )
 }

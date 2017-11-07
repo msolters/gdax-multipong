@@ -4,12 +4,12 @@
     "coin": "ETH",
     "fiat": "USD",
     "initial_cash": 100,
-    "greedy": false,
+    "greedy": true,
     "num_buckets": 10,
     "trade_size": 0.1,
     "min_price": 295,
-    "max_price": 296,
-    "bucket_runway": 2,
+    "max_price": 305,
+    "bucket_runway": 3,
     "midmarket_price_period": 1,
     "trade_period": 50
   }

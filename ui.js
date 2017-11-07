@@ -125,8 +125,8 @@ const refresh_overview_table = exports.refresh_overview_table = () => {
   let current_price = 'Loading'
   if( gdax.orderbook_synced ) current_price = `$${gdax.midmarket_price.current.toFixed(3)}`
   let pong_sum = 0//_.reduce(buckets_selling, (sum, bucket) => sum+(bucket.current_sell_price*bucket.trade_size), 0)
-  let net_gain = 0//current_cash-settings.multipong.initial_cash-fees
-  let current_cash = 0
+  let net_gain = account.account.profit-account.account.fees
+  let current_cash = account.account.current_cash
   ui.overview_table.setData({
     headers: [`P (${(settings) ? settings.product_id : '-'})`, 'dP/dt', 'Initial Cash', 'Cash on Hand', 'Fees', 'Profit', 'Net Gain', 'Max Gain', 'Buys', 'Sells', 'Min', 'Max'],
     data: [[  current_price,

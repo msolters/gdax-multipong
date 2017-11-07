@@ -78,20 +78,9 @@ const valid_buy_price = exports.valid_buy_price = (price) => {
 const process_buckets = exports.process_buckets = () => {
   for( let bucket of exports.buckets ) {
     if( isNaN( gdax.midmarket_price.current ) ) return
-    if( bucket.trade_id ) {
-      //  Do we need to cancel this bucket?
-      let trade = _.findWhere( _.values(trades.trades), {trade_id: bucket.trade_id} )
-      if( trade ) {
-        if( !valid_buy_price( bucket.min_price ) && trades.can_cancel( trade ) ) {
-          trades.cancel_trade( trade )
-        }
-      } else {
-        update( bucket, (b) => {
-          b.trade_id = null
-        })
-      }
-    } else {
+    if( bucket.trade_id === null ) {
       //  Do we need to trade in this bucket?
+      //ui.logger('sys_log', `Considering buying at ${bucket.min_price}`)
       if( valid_buy_price( bucket.min_price ) ) {
         ui.logger('sys_log', `We should be trading at ${bucket.min_price}`)
         trade_id = trades.create_trade(settings.multipong.trade_size, bucket.min_price, bucket.max_price)
@@ -108,6 +97,6 @@ const process_buckets = exports.process_buckets = () => {
  */
 const update = exports.update = (bucket, mutation) => {
   mutation(bucket)
-  ui.logger('sys_log', `update_bucket: ${JSON.stringify(bucket)}`)
+  //ui.logger('sys_log', `update_bucket: ${JSON.stringify(bucket)}`)
   db.collections.buckets.update(bucket)
 }

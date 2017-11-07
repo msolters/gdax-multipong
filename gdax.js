@@ -49,11 +49,27 @@ const init_ws_stream = () => {
     ui.logger('sys_log', error)
   })
 
-  /* TODO: auto-reconnect?
-  gdax_ws.on('close', (d) => {
-    console.error(d)
+  // TODO: auto-reconnect?
+  gdax_ws.on('close', (data) => {
+    ws_reconnect(gdax_ws, data)
   })
-  */
+}
+
+const ws_reconnect = (ws, data) => {
+  ui.logger('sys_log', 'Websocket disconnected with data: ${data}')
+  // try to re-connect the first time...
+  ws.connect()
+  let count = 1
+  // attempt to re-connect every 30 seconds.
+  // TODO: maybe use an exponential backoff instead
+  const interval = setInterval(() => {
+    if (!ws.socket) {
+      count++
+      ws.connect()
+    } else {
+      clearInterval(interval)
+    }
+  }, 10000)
 }
 
 const set_midmarket_price = () => {
@@ -79,6 +95,9 @@ const init_orderbook = () => {
   exports.orderbook_synced = false
   ui.logger('sys_log', `Loading ${settings.product_id} order book`)
   orderbook = new gdax.OrderbookSync([settings.product_id])
+  orderbook.on('close', (data) => {
+    ws_reconnect(orderbook, data)
+  })
   if( price_timer ) clearInterval( price_timer )
   price_timer = setInterval( set_midmarket_price, settings.multipong.midmarket_price_period )
 }
