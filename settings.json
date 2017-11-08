@@ -1,14 +1,14 @@
 {
   "tz": "America/New_York",
   "multipong": {
-    "coin": "ETH",
+    "coin": "BTC",
     "fiat": "USD",
-    "initial_cash": 100,
-    "greedy": true,
-    "num_buckets": 10,
-    "trade_size": 0.1,
-    "min_price": 295,
-    "max_price": 305,
+    "initial_cash": 300,
+    "greedy": false,
+    "num_buckets": 20,
+    "trade_size": 0.01,
+    "min_price": 7100,
+    "max_price": 7500,
     "bucket_runway": 3,
     "midmarket_price_period": 1,
     "trade_period": 50

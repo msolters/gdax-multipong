@@ -111,19 +111,22 @@ reload_config = () => {
     return trades.wait_for_all_trades_to_sync()
   })
   .then( () => {
-    ui.logger('sys_log', 'Trade engine initialized')
-    ui.logger('sys_log', 'Press "b" to enable crypto buys.')
-    ui.logger('sys_log', 'Press "s" to enable crypto sells.')
+    ui.logger('sys_log', 'Trade engine ready')
+    if( !trade_data.buys.enabled && !trade_data.sells.enabled ) {
+      ui.logger('sys_log', 'Press "b" to enable crypto buys.')
+      ui.logger('sys_log', 'Press "s" to enable crypto sells.')
+    }
     bucket_timer = setInterval( buckets.process_buckets, 500 )
   })
   .catch( (error) => {
-    console.error(error)
-    //exit_gracefully()
+    ui.logger('sys_log', JSON.stringify(error))
+    exit_gracefully()
   })
 }
 
 exit_gracefully = () => {
   ui.logger('sys_log', 'Exiting...')
+  // TODO: cancel all buys on exit?
   //cancel_all_buys()
   db.close()
   log.file.end()

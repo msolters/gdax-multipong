@@ -25,7 +25,7 @@ const init_screen = exports.init_screen = () => {
     fg: 'yellow',
     interactive: false,
     columnSpacing: 4,               //in chars
-    columnWidth: [12, 8, 12, 12, 8, 12, 12, 12, 12, 8, 8, 8],  // in chars
+    columnWidth: [12, 8, 12, 12, 8, 12, 12, 12, 12, 8, 8, 8, 8],  // in chars
   })
   ui.trade_table = contrib.table({
     keys: true,
@@ -40,10 +40,10 @@ const init_screen = exports.init_screen = () => {
     columnSpacing: 4, //in chars
     columnWidth: [4, 12, 12, 4, 17], /*in chars*/
   })
-  ui.trade_log = contrib.log({
+  ui.gdax_log = contrib.log({
     fg: "yellow",
     selectedFg: "yellow",
-    label: 'Trade Log',
+    label: 'GDAX Log',
     left: '2%',
     top: '16%',
     width: '46%',
@@ -63,7 +63,7 @@ const init_screen = exports.init_screen = () => {
 
   screen.append(ui.overview_table)
   screen.append(ui.trade_table)
-  screen.append(ui.trade_log)
+  screen.append(ui.gdax_log)
   screen.append(ui.sys_log)
 
   setInterval( () => {
@@ -125,19 +125,20 @@ const refresh_overview_table = exports.refresh_overview_table = () => {
   let current_price = 'Loading'
   if( gdax.orderbook_synced ) current_price = `$${gdax.midmarket_price.current.toFixed(3)}`
   ui.overview_table.setData({
-    headers: [`P (${(settings) ? settings.product_id : '-'})`, 'dP/dt', 'Initial Cash', 'Cash on Hand', 'Fees', 'Profit', 'Net Gain', 'Max Gain', 'Buys', 'Sells', 'Min', 'Max'],
+    headers: [`P (${(settings) ? settings.product_id : '-'})`, 'dP/dt', 'Initial Cash', 'Cash on Hand', 'Profit', 'Fees', 'Net Change', 'Mxm Profit', 'Buys', 'Sells', 'Min', 'Max', 'Buckets'],
     data: [[  current_price,
               `$${gdax.midmarket_price.velocity.toPrecision(4)}/s`,
               `$${(settings) ? settings.multipong.initial_cash.toFixed(2) : '-'}`,
               `$${trades.figures.current_cash.toFixed(2)}`,
-              `$${account.account.fees.toFixed(2)}`,      // fees
               `$${trades.figures.profit.toFixed(2)}`,    // profit
+              `$${account.account.fees.toFixed(2)}`,      // fees
               `$${trades.figures.net_gain.toPrecision(4)}`,              // net
               `$${trades.figures.max_profit.toPrecision(4)}`, // max
               `${(trade_data.buys.enabled ? 'On' : 'Off')} (${account.account.buy_count})`,
               `${(trade_data.sells.enabled ? 'On' : 'Off')} (${account.account.sell_count})`,
               `$${(settings) ? settings.multipong.min_price.toFixed(2) : '-'}`,
-              `$${(settings) ? settings.multipong.max_price.toFixed(2) : '-'}`]]
+              `$${(settings) ? settings.multipong.max_price.toFixed(2) : '-'}`,
+              settings.multipong.num_buckets]]
   })
 }
 

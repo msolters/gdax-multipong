@@ -216,7 +216,7 @@ exports.sync_trade = async function sync_trade( trade ) {
   try {
     data = await gdax.get_order_by_id( order_id )
   } catch( e ) {
-    ui.logger('sys_log', JSON.stringify(e))
+    ui.logger('gdax_log', JSON.stringify(e))
     //  TODO: analyze failure modes
   }
 
@@ -225,7 +225,7 @@ exports.sync_trade = async function sync_trade( trade ) {
   // Maybe this order was canceled, or we are checking too soon.
   let not_found = false
   if( data.message && data.message === 'NotFound' ) {
-    ui.logger('sys_log', `Trade ${trade.trade_id} not found.`)
+    ui.logger('sys_log', `Trade ${trade.trade_id} not found in GDAX.`)
     not_found = true
     if( trade.state === 'canceling' ) {
       reset_trade( trade )
@@ -248,7 +248,7 @@ exports.sync_trade = async function sync_trade( trade ) {
 
   if( not_found ) return
 
-  ui.logger('sys_log', data)
+  ui.logger('gdax_log', data)
   switch( data.status ) {
     case 'done':
       switch( data.done_reason ) {
@@ -324,8 +324,8 @@ const handle_trade_error = ( trade, error ) => {
 */
   if( error === 'Insufficient funds' ) {
     update(trade, (t) => {
-      //t[t.side].state = 'insufficientfunds'
-      t[t.side].next_attempt = new Date(new Date().valueOf() + 3000)
+      t.state = 'insufficientfunds'
+      t[t.side].next_attempt = new Date(new Date().valueOf() + 5000)
     })
     ui.logger('sys_log', `Insufficient funds to place ${trade.side} order for trade ${trade.trade_id}.`)
     return true
@@ -358,7 +358,7 @@ const buy_trade = (trade) => {
   .catch( (error) => {
     handle_trade_error( trade, error )
     reset_trade(trade)
-    ui.logger('sys_log', error)
+    ui.logger('gdax_log', error)
   })
 }
 
@@ -376,7 +376,6 @@ const sell_trade = ( trade ) => {
   ui.logger('sys_log', `Selling trade ${trade.trade_id}`)
   gdax.limit_order('sell', settings.product_id, sell_price, trade.size )
   .then( (data) => {
-    ui.logger('sys_log', data)
     update(trade, (t) => {
       t.sell.executed_price = parseFloat(data.price)
       t.sell.order_id = data.id
@@ -387,7 +386,7 @@ const sell_trade = ( trade ) => {
   .catch( (error) => {
     handle_trade_error( trade, error )
     reset_trade(trade)
-    ui.logger('sys_log', error)
+    ui.logger('gdax_log', error)
   })
 }
 
@@ -460,7 +459,6 @@ const wait_for_all_trades_to_sync = exports.wait_for_all_trades_to_sync = () => 
     let timer
     function check_ready() {
       let unsynced_trades = _.filter( _.values(exports.trades), (t) => t.sync_status.needs_sync)
-//ui.logger('sys_log', synced_trades)
       if( unsynced_trades && unsynced_trades.length === 0 ) {
         clearInterval(timer)
         resolve()
@@ -513,6 +511,11 @@ const process_trades = exports.process_trades = () => {
           reset_trade( trade )
         } else {
           delete_trade( trade )
+        }
+        break
+      case 'insufficientfunds':
+        if( new Date() > trade[trade.side].next_check ) {
+          reset_trade(trade)
         }
         break
       default:

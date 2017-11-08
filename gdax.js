@@ -65,7 +65,7 @@ const init_ws_stream = () => {
   })
 
   gdax_ws.on('error', (error) => {
-    ui.logger('sys_log', error)
+    ui.logger('gdax_log', error)
   })
 
   gdax_ws.on('close', (data) => {
@@ -74,20 +74,20 @@ const init_ws_stream = () => {
 }
 
 const ws_reconnect = (ws, data) => {
-  ui.logger('sys_log', `GDAX websocket disconnected with data: ${data}`)
+  ui.logger('gdax_log', `GDAX websocket disconnected with data: ${data}`)
   // try to re-connect the first time...
-  ui.logger('sys_log', 'Reconnecting to GDAX')
+  ui.logger('gdax_log', 'Reconnecting to GDAX')
   ws.connect()
   let count = 1
   // attempt to re-connect every 30 seconds.
   // TODO: maybe use an exponential backoff instead
   const interval = setInterval(() => {
     if (!ws.socket) {
-      ui.logger('sys_log', `Reconnecting to GDAX (attempt ${count++})`)
+      ui.logger('gdax_log', `Reconnecting to GDAX (attempt ${count++})`)
       //count++
       ws.connect()
     } else {
-      ui.logger('sys_log', 'GDAX reconnected')
+      ui.logger('gdax_log', 'GDAX reconnected')
       clearInterval(interval)
     }
   }, 10000)
@@ -175,7 +175,7 @@ const limit_order = exports.limit_order = (side, product_id, price, size) => {
         } else if( data['message'].indexOf('Insufficient funds') !== -1 ) {
           reject('Insufficient funds')
         } else {
-          ui.logger('sys_log', data)
+          ui.logger('gdax_log', data)
           reject('Unknown error')
         }
       }
@@ -196,7 +196,7 @@ const cancel_order = exports.cancel_order = ( order_id ) => {
  *
  */
 const process_ws_message = (data) => {
-  ui.logger('sys_log', data)
+  ui.logger('gdax_log', data)
   switch( data.type ) {
     case 'done': {
       let trade = _.findWhere( _.values(trades.trades), {active_order_id: data.order_id} )
@@ -209,7 +209,6 @@ const process_ws_message = (data) => {
       }
     } break
     case 'match': {
-      ui.logger('sys_log', 'Handling partial match...')
       let order_id = null
       switch( data.side ) {
         case 'buy':
@@ -222,6 +221,7 @@ const process_ws_message = (data) => {
       if( !order_id ) return
       let trade = _.findWhere( _.values(trades.trades), {active_order_id: order_id} )
       if( !trade ) return
+      ui.logger('sys_log', `Handling partial match on order ${order_id}`)
       trades.trade_partial_fill( trade )
     } break
   }
