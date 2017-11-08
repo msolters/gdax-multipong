@@ -525,5 +525,9 @@ const process_trades = exports.process_trades = () => {
 const update = (trade, mutator) => {
   mutator(trade)
   //ui.logger('sys_log', `update_trade: ${JSON.stringify(trade)}`)
-  db.collections.trades.update( trade )
+  try {
+    db.collections.trades.update( trade )
+  } catch( e ) {
+    ui.logger('sys_log', JSON.stringify(e))
+  }
 }

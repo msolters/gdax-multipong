@@ -101,5 +101,9 @@ const process_buckets = exports.process_buckets = () => {
 const update = exports.update = (bucket, mutation) => {
   mutation(bucket)
   //ui.logger('sys_log', `update_bucket: ${JSON.stringify(bucket)}`)
-  db.collections.buckets.update(bucket)
+  try {
+    db.collections.buckets.update(bucket)
+  } catch( e ) {
+    ui.logger('sys_log', JSON.stringify(e))
+  }
 }
