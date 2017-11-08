@@ -6,17 +6,19 @@ You will need
 *  NodeJS v7.8 or greater (if you're not managing your node installs using [nvm](https://github.com/creationix/nvm) you're missing out!)
 
 ## Setup
+1.  `clone git@github.com:msolters/gdax-multipong && cd gdax-multipong`
 1.  `npm install`
-1.  Put your GDAX API `passphrase`, `key`, and `secret` into `settings.json`
-1.  Set your currency and buckets in `settings.json` (more below)
+1.  Put your GDAX API `passphrase`, `key`, and `secret` into `credentials.json`
+1.  Set your currency and bucket parameters in `settings.json` (more on configuration below)
 1.  `node multipong.js`
 
 To begin buying and selling, press the "b" and "s" keys.
 
 ## Commands
-*  `c` - Cancel all pending buys.  Note, if buying is "on", these orders will be almost instantly-replaced.  Turn off buying before canceling any orders!
+*  `r` - Reload and apply `settings.json`
 *  `b` - Toggle buying on and off
 *  `s` - Toggle selling on and off
+*  `c` - Cancel all pending buys.  Note, if buying is "on", these orders will be almost instantly-replaced.  Turn off buying before canceling any orders!
 *  `q`, `ESC`, or `CTRL+C` - Exit Multipong
 
 ## Strategy
@@ -44,50 +46,43 @@ Multipong performs best with thin (price width), deep (trade size) buckets, and 
 Here's an example `settings.json`:
 ```json
 {
-  "gdax": {
-    "api": {
-      "key": "",
-      "secret": "",
-      "passphrase": "",
-      "uri": "https://api.gdax.com"
-    }
-  },
   "tz": "America/New_York",
   "multipong": {
-    "coin": "ETH",
+    "coin": "BTC",
     "fiat": "USD",
-    "initial_cash": 380.13,
-    "greedy": false,
-    "num_buckets": 100,
-    "trade_size": 0.1,
-    "min_price": 295,
-    "max_price": 302,
+    "initial_cash": 100,
+    "greedy": true,
+    "num_buckets": 10,
+    "trade_size": 0.01,
+    "min_price": 7000,
+    "max_price": 7400,
+    "bucket_runway": 3,
     "midmarket_price_period": 1,
-    "trade_period": 50,
+    "trade_period": 50
   }
 }
 ```
 
-GDAX API settings are self-explanatory.  Make sure you have **trade** and **view** permissions!
-
-Here's what the `multipong` configuration parameters mean:
-
-*  Multipong will trade between `fiat` currency for `coin`; in this example, it will buy and sell ETH with USD.  Available options are only what GDAX provides (BTC, ETH, LTC, USD, GBP, EUR).
+*  Multipong will trade between `fiat` currency for `coin`; in this example, it will buy and sell BTC with USD.  Available options are only what GDAX provides: BTC, ETH, LTC, USD, GBP, EUR.
 *  `trade_size` is the quantity of `coin` that the bot will buy or sell per bucket.  Keep in mind GDAX's minimums: 0.01 for BTC.
-*  Buy and sell BTC if it's between `min_price` and `max_price`.  Trading will stop if the price goes above `max_price` or below `min_price`.
-*  `num_buckets` is how many mini-trades the min-max price range will be subdivided into.  A higher number here means more frequent trades, but less profitable ones.  It also increases liability for fees if the market has sudden shifts.  If buckets are only a few cents or dollars, a quickly shifting price can crash through many buckets at once, and some orders might end up being taker orders!
-*  `initial_cash` is the cash amount you want to use for bookkeeping in the app.  (If `greedy: false`, Multipong will not spend more than this amount of cash.)
-*  `greedy` determines whether or not `initial_cash` will be treated as your total fiat capital.  If `greedy: true`, Multipong will make buys as long as your fiat wallet has enough funds, even if those funds are more than `initial_cash`.  Conversely, if `greedy: false`, Multipong will stop placing buys when it has exhausted `initial_cash`, even if there are more funds in your fiat wallet.
+*  Buy and sell BTC if it's between `min_price` and `max_price` (+/- 0.01 [fiat]).  In other words, trading will stop if the price goes above `max_price` or below `min_price`.
+*  `num_buckets` is how many trade ranges the total min-max price range will be subdivided into.  A higher number here means more frequent trades, but less profitable ones.  (It also increases liability for fees if the market has sudden shifts.)  If buckets are only a few cents or dollars, a quickly moving price might move faster than trades can be requested (esp. depending on your internet connection) and some orders might end up being *taker* orders!
+*  `bucket_runway` is how many buy orders to the left of the midmarket price the app will maintain at any given time.  A value of 3 means that, at most, 3 buy orders will be placed at any given time.  If the price moves up, the lowest buy order is deleted and a new, higher one is placed.  This is *not* true as the price falls (or else how would buys be filled?)
+*  `initial_cash` is the amount of cash you are telling Multipong is in your fiat wallet to use.
+*  `greedy` determines whether or not `initial_cash` will be treated as your *total* fiat capital.  If `greedy: true`, Multipong will make buys as long as your fiat wallet has enough funds, even if those funds are more than `initial_cash`.  Conversely, if `greedy: false`, Multipong will stop placing buys when it has exhausted `initial_cash`, even if there are more funds in your fiat wallet.
 *  `midmarket_price_period` how many ms between updating the current crypto midmarket price in the app
 *  `trade_period` how many ms between placing new trades
 
 You are encouraged to explore various permutations of `min_price`, `max_price`, `trade_size` and `num_buckets`.  To avoid getting stuck out with high buys during large runs, we advise you to set a `max_price` below the expected maximum for a given trading period.  You want `min_price` and `max_price` to wrap around the range where the price is expected to see the most volume of trading!
 
 ## Updating Buckets/Resetting
-Multipong will save all trade history and bucket distribution into a local database file, named like `BTC-USD.db` or `ETH-USD.db` etc. on boot.  If you change `settings.json` and restart, some settings won't have any effect, as this DB will be read from disk instead.
+As the market moves, you may find you want to adjust your `min_price`, `max_price`, `num_buckets`, etc. without stopping Multipong.  Simply edit your `settings.json` and save the file.  Then, in the app, press the `r` key.  Multipong will re-read the values of `settings.json`, and update the components of the app which require it.
 
-To reset Multipong entirely, just delete this file, update `settings.json` as you like, and re-run the app.  Note that this may orphan buy or sell orders on GDAX if you stopped while orders are pending; you will have to manage those manually.
+If you are only changing your bucket distribution, ongoing trades will not be touched, but new trades moving forward will respect your new buckets.  However, if you are changing the currency pair that you are trading, Multipong will have to undergo a slightly longer re-initialization process.
 
-If you want to update your bucket distribution (min/max/trade size/buckets), but retain your trade history, wait for all sells to complete, and then quit the app.  Manually cancel all buy orders in GDAX.  Then, update your `settings.json`.  Finally, run `node clearbuckets.js btc` (or other currency).  Then, just run the app again!  This will make a new bucket trading distribution in the DB, but leave all your old trade and profit history untouched.
+Either way, depending on your internet connection, this step should never take longer than a few seconds!  Happy trading!
 
+## Thank You!
 This software is provided free for your amusement, edification, and enrichment!  However, if you enjoy multipong, you can show your appreciation by sending a BTC tip to the author here at `1Nhdd9UCsv9dsabLLNRue8ecDN41yrSRdk`
+
+If you have any bugs, try to get a screen capture and/or the contents of your `<coin>-<fiat>.log` file!  (Don't share any sensitive information in your uploads though!)
