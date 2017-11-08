@@ -1,6 +1,6 @@
 const blessed = require('blessed')
 const contrib = require('blessed-contrib')
-settings.DEBUG = false
+const DEBUG = false
 
 exports = module.exports = {}
 
@@ -8,7 +8,7 @@ let screen
 const ui = {}
 
 const init = exports.init = () => {
-  if( settings.DEBUG ) return
+  if( DEBUG ) return
   init_screen()
   init_keystrokes()
 }
@@ -25,7 +25,7 @@ const init_screen = exports.init_screen = () => {
     fg: 'yellow',
     interactive: false,
     columnSpacing: 4,               //in chars
-    columnWidth: [14, 8, 12, 12, 8, 12, 12, 12, 12, 8, 8, 8],  // in chars
+    columnWidth: [12, 8, 12, 12, 8, 12, 12, 12, 12, 8, 8, 8],  // in chars
   })
   ui.trade_table = contrib.table({
     keys: true,
@@ -99,9 +99,9 @@ const init_keystrokes = exports.init_keystrokes = () => {
   screen.key(['c'], (ch, key) => {
     trades.cancel_all_buys()
   })
-  // reload from settings.json
+  // Reinitialize the app
   screen.key(['r'], (ch, key) => {
-    load_settings()
+    reload_config()
   })
 }
 
@@ -124,19 +124,16 @@ const refresh_overview_table = exports.refresh_overview_table = () => {
   if( !account.account || !settings ) return
   let current_price = 'Loading'
   if( gdax.orderbook_synced ) current_price = `$${gdax.midmarket_price.current.toFixed(3)}`
-  let pong_sum = 0//_.reduce(buckets_selling, (sum, bucket) => sum+(bucket.current_sell_price*bucket.trade_size), 0)
-  let net_gain = account.account.profit-account.account.fees
-  let current_cash = account.account.current_cash
   ui.overview_table.setData({
     headers: [`P (${(settings) ? settings.product_id : '-'})`, 'dP/dt', 'Initial Cash', 'Cash on Hand', 'Fees', 'Profit', 'Net Gain', 'Max Gain', 'Buys', 'Sells', 'Min', 'Max'],
     data: [[  current_price,
               `$${gdax.midmarket_price.velocity.toPrecision(4)}/s`,
               `$${(settings) ? settings.multipong.initial_cash.toFixed(2) : '-'}`,
-              `$${current_cash.toFixed(2)}`,
-              `$${account.account.fees.toFixed(2)}`,       // fees
-              `$${account.account.profit.toFixed(2)}`,    // profit
-              `$${net_gain.toPrecision(4)}`,              // net
-              `$${(net_gain + pong_sum).toPrecision(4)}`, // max
+              `$${trades.figures.current_cash.toFixed(2)}`,
+              `$${account.account.fees.toFixed(2)}`,      // fees
+              `$${trades.figures.profit.toFixed(2)}`,    // profit
+              `$${trades.figures.net_gain.toPrecision(4)}`,              // net
+              `$${trades.figures.max_profit.toPrecision(4)}`, // max
               `${(trade_data.buys.enabled ? 'On' : 'Off')} (${account.account.buy_count})`,
               `${(trade_data.sells.enabled ? 'On' : 'Off')} (${account.account.sell_count})`,
               `$${(settings) ? settings.multipong.min_price.toFixed(2) : '-'}`,
@@ -148,9 +145,11 @@ const logger = exports.logger = (target, content) => {
   if( typeof content !== 'string' ) {
     content = JSON.stringify(content)
   }
-  log.file.write( content )
-  log.file.write('\n')
-  if( settings.DEBUG ) {
+  if( log.file ) {
+    log.file.write( content )
+    log.file.write('\n')
+  }
+  if( DEBUG ) {
     console.log(content)
     return
   }

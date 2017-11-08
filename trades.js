@@ -3,9 +3,40 @@ const uuidv4 = require('uuid/v4')
 exports = module.exports = {}
 
 exports.trades = {}
+exports.figures = {
+  pending_buys: 0,
+  pending_sells: 0,
+  profit: 0,
+  net_gain: 0,
+  current_cash: 0,
+  max_profit: 0
+}
+
+const crunch_figures = () => {
+  let pending_buy_trades = _.filter( _.values(exports.trades), (t) => t.state === 'ping' )
+  exports.figures.pending_buys = _.reduce( pending_buy_trades, (sum, t) => {
+    return sum += t.size*t.buy.executed_price
+  }, 0 )
+  let pending_sell_trades = _.filter( _.values(exports.trades), (t) => t.state === 'pong' )
+  exports.figures.pending_sells = _.reduce( pending_sell_trades, (sum, t) => {
+    return sum += t.size*t.sell.executed_price
+  }, 0 )
+  exports.figures.profit = account.account.sells-account.account.buys
+  exports.figures.net_gain = exports.figures.profit-account.account.fees
+  exports.figures.current_cash = settings.multipong.initial_cash+exports.figures.net_gain-exports.figures.pending_buys
+  exports.figures.max_profit = exports.figures.net_gain+exports.figures.pending_sells
+}
 
 const reset = exports.reset = () => {
   exports.trades = {}
+  exports.figures = {
+    pending_buys: 0,
+    pending_sells: 0,
+    profit: 0,
+    net_gain: 0,
+    current_cash: 0,
+    max_profit: 0
+  }
 }
 
 const load = exports.load = () => {
@@ -75,7 +106,7 @@ const trade_fill = (trade, fill_data) => {
       })
       account.update( account.account, (a) => {
         a.buy_count++
-        a.current_cash -= fill_data.fiat_value
+        a.buys += fill_data.fiat_value
       })
       break
     case 'sell':
@@ -88,7 +119,7 @@ const trade_fill = (trade, fill_data) => {
       })
       account.update( account.account, (a) => {
         a.sell_count++
-        a.current_cash += fill_data.fiat_value
+        a.sells += fill_data.fiat_value
       })
       break
   }
@@ -309,7 +340,7 @@ const handle_trade_error = ( trade, error ) => {
 
 const buy_trade = (trade) => {
   if( !trade_data.buys.enabled ) return
-  if( !settings.multipong.greedy && trade.buy.price * trade.size > account.account.current_cash ) return
+  if( !settings.multipong.greedy && trade.buy.price * trade.size > exports.figures.current_cash ) return
   update( trade, (t) => {
     t.buy.pending = true
     t.side = 'buy'
@@ -429,7 +460,7 @@ const wait_for_all_trades_to_sync = exports.wait_for_all_trades_to_sync = () => 
     let timer
     function check_ready() {
       let unsynced_trades = _.filter( _.values(exports.trades), (t) => t.sync_status.needs_sync)
-//ui.logger('sys_log', synced_trades)      
+//ui.logger('sys_log', synced_trades)
       if( unsynced_trades && unsynced_trades.length === 0 ) {
         clearInterval(timer)
         resolve()
@@ -450,7 +481,8 @@ const process_trades = exports.process_trades = () => {
     }
     switch( trade.state ) {
       case 'empty':
-        if( buckets.valid_buy_price(trade.buy.price) ) {
+        let bucket = _.findWhere( buckets.buckets, {trade_id: trade.trade_id} )
+        if( bucket && buckets.valid_buy_price(trade.buy.price) ) {
           if( !trade.buy.order_id && !trade.buy.pending /*&& (trade.buy.next_attempt === null || trade.buy.next_attempt < new Date())*/ ) {
             buy_trade( trade )
           }
@@ -487,6 +519,7 @@ const process_trades = exports.process_trades = () => {
         break
     }
   }
+  crunch_figures()
 }
 
 const update = (trade, mutator) => {

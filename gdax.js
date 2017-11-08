@@ -17,13 +17,32 @@ const midmarket_price = exports.midmarket_price = {
 }
 
 const init = exports.init = () => {
+  disconnect()
   init_orderbook()
   init_ws_stream()
 }
 
-const init_ws_stream = () => {
-  //if( gdax_ws ) gdax_ws.close()
+const disconnect = exports.disconnect = () => {
+  if( price_timer ) clearInterval( price_timer )
+  if( gdax_ws ) {
+    gdax_ws.removeAllListeners('close')
+    try {
+      gdax_ws.disconnect()
+    } catch( e ) {
+      //ui.logger('sys_log', JSON.stringify(e))
+    }
+  }
+  if( orderbook ) {
+    orderbook.removeAllListeners('close')
+    try {
+      orderbook.disconnect()
+    } catch( e ) {
+      //ui.logger('sys_log', JSON.stringify(e))
+    }
+  }
+}
 
+const init_ws_stream = () => {
   gdax_ws = new gdax.WebsocketClient([settings.product_id], 'wss://ws-feed.gdax.com', {
     key: creds.gdax.api.key,
     secret: creds.gdax.api.secret,
@@ -49,14 +68,13 @@ const init_ws_stream = () => {
     ui.logger('sys_log', error)
   })
 
-  // TODO: auto-reconnect?
   gdax_ws.on('close', (data) => {
     ws_reconnect(gdax_ws, data)
   })
 }
 
 const ws_reconnect = (ws, data) => {
-  ui.logger('sys_log', 'Websocket disconnected with data: ${data}')
+  ui.logger('sys_log', `Websocket disconnected with data: ${data}`)
   // try to re-connect the first time...
   ws.connect()
   let count = 1
@@ -73,6 +91,7 @@ const ws_reconnect = (ws, data) => {
 }
 
 const set_midmarket_price = () => {
+  if( !orderbook ) return
   let max_bid = orderbook.books[settings.product_id]._bids.max()
   let min_ask = orderbook.books[settings.product_id]._asks.min()
   if(!max_bid || !min_ask) {

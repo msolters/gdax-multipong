@@ -40,5 +40,5 @@ const init_collection = exports.init_collection = (collection_name) => {
 }
 
 const close = exports.close = () => {
-  db.close()
+  if( db ) db.close()
 }
