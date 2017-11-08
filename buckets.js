@@ -7,13 +7,15 @@ const load = exports.load = () => {
   if( stored_config ) {
     //  Check to see if settings.json differs from previous settings
     if( !( (settings.multipong.min_price === stored_config.min_price) && (settings.multipong.max_price === stored_config.max_price) && (settings.multipong.num_buckets === stored_config.num_buckets) && (settings.multipong.trade_size === stored_config.trade_size) ) ) {
+      //  Buckets are now different! Recompute them.
       stored_config.min_price = settings.multipong.min_price
       stored_config.max_price = settings.multipong.max_price
       stored_config.num_buckets = settings.multipong.num_buckets
-      //stored_config.trade_size = settings.
+      stored_config.trade_size = settings.multipong.trade_size
       db.collections.settings.update(stored_config)
       compute()
     } else {
+      //  Just copy buckets from disk into exports.buckets
       exports.buckets = db.collections.buckets.chain()
       .find()
       .sort( (a, b) => {
@@ -31,11 +33,12 @@ const load = exports.load = () => {
       .data()
     }
   } else {
-    //  Create a new config if none exists
+    //  Create a new buckets if there weren't any to begin with.
     let new_config = {
       min_price: settings.multipong.min_price,
       max_price: settings.multipong.max_price,
       num_buckets: settings.multipong.num_buckets,
+      trade_size: settings.multipong.trade_size,
     }
     db.collections.settings.insert( new_config )
     compute()
