@@ -20,6 +20,6 @@ const load = exports.load = () => {
 
 const update = exports.update = (account, mutator) => {
   mutator(account)
-  ui.logger('sys_log', `update_account: ${JSON.stringify(account)}`)
+  //ui.logger('sys_log', `update_account: ${JSON.stringify(account)}`)
   db.collections.account.update(account)
 }

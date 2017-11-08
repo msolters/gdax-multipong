@@ -19,7 +19,7 @@ const load = exports.load = () => {
     exports.trades[trade.trade_id] = trade
   }
   for( let trade of _.values(exports.trades) ) {
-    mark_trade_for_sync( trade, true )
+    mark_trade_for_sync( exports.trades[trade.trade_id], true )
   }
 }
 
@@ -309,7 +309,7 @@ const handle_trade_error = ( trade, error ) => {
 
 const buy_trade = (trade) => {
   if( !trade_data.buys.enabled ) return
-  if( !settings.multipong.greedy && trade.buy.price * trade.size > settings.multipong.initial_cash ) return
+  if( !settings.multipong.greedy && trade.buy.price * trade.size > account.account.current_cash ) return
   update( trade, (t) => {
     t.buy.pending = true
     t.side = 'buy'
@@ -428,8 +428,9 @@ const wait_for_all_trades_to_sync = exports.wait_for_all_trades_to_sync = () => 
   return new Promise(function(resolve, reject) {
     let timer
     function check_ready() {
-      let synced_trades = _.filter( _.values(exports.trades), (t) => !t.sync_status.needs_sync)
-      if( synced_trades && synced_trades.length === 0 ) {
+      let unsynced_trades = _.filter( _.values(exports.trades), (t) => t.sync_status.needs_sync)
+//ui.logger('sys_log', synced_trades)      
+      if( unsynced_trades && unsynced_trades.length === 0 ) {
         clearInterval(timer)
         resolve()
       }
