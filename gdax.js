@@ -74,17 +74,20 @@ const init_ws_stream = () => {
 }
 
 const ws_reconnect = (ws, data) => {
-  ui.logger('sys_log', `Websocket disconnected with data: ${data}`)
+  ui.logger('sys_log', `GDAX websocket disconnected with data: ${data}`)
   // try to re-connect the first time...
+  ui.logger('sys_log', 'Reconnecting to GDAX')
   ws.connect()
   let count = 1
   // attempt to re-connect every 30 seconds.
   // TODO: maybe use an exponential backoff instead
   const interval = setInterval(() => {
     if (!ws.socket) {
-      count++
+      ui.logger('sys_log', `Reconnecting to GDAX (attempt ${count++})`)
+      //count++
       ws.connect()
     } else {
+      ui.logger('sys_log', 'GDAX reconnected')
       clearInterval(interval)
     }
   }, 10000)
