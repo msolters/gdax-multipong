@@ -359,9 +359,9 @@ const buy_trade = (trade) => {
     } )
   })
   .catch( (error) => {
-    handle_trade_error( trade, error )
-    reset_trade(trade)
     ui.logger('gdax_log', error)
+    if( handle_trade_error( trade, error ) ) return
+    reset_trade(trade)
   })
 }
 
@@ -517,7 +517,7 @@ const process_trades = exports.process_trades = () => {
         }
         break
       case 'insufficientfunds':
-        if( new Date() > trade[trade.side].next_check ) {
+        if( new Date() > trade[trade.side].next_attempt ) {
           reset_trade(trade)
         }
         break
