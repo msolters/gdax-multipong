@@ -14,6 +14,7 @@ const load = exports.load = () => {
       stored_config.trade_size = settings.multipong.trade_size
       db.collections.settings.update(stored_config)
       compute()
+      trades.cancel_all_buys()
     } else {
       //  Just copy buckets from disk into exports.buckets
       exports.buckets = db.collections.buckets.chain()
