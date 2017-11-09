@@ -13,7 +13,10 @@ exports.figures = {
 }
 
 const crunch_figures = () => {
-  let pending_buy_trades = _.filter( _.values(exports.trades), (t) => t.state === 'ping' )
+  let pending_buy_trades = _.filter( _.values(exports.trades), (t) => {
+    if( t.state === 'ping' || t.buy.pending ) return true
+    return false
+  })
   exports.figures.pending_buys = _.reduce( pending_buy_trades, (sum, t) => {
     return sum += t.size*t.buy.executed_price
   }, 0 )
@@ -469,7 +472,7 @@ const wait_for_all_trades_to_sync = exports.wait_for_all_trades_to_sync = () => 
 }
 
 const process_trades = exports.process_trades = () => {
-  for( let trade of _.values(exports.trades) ) {
+  for( let trade of _.sortBy(_.values(exports.trades), t => -t.buy.price) ) {
     if( trade.sync_status.needs_sync && new Date() > trade.sync_status.next_sync ) {
       exports.sync_trade( trade )
       .catch( (e) => {
