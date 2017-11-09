@@ -521,8 +521,8 @@ const process_trades = exports.process_trades = () => {
       default:
         break
     }
+    crunch_figures()
   }
-  crunch_figures()
 }
 
 const update = (trade, mutator) => {
