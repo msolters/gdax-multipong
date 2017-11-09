@@ -25,7 +25,7 @@ const init_screen = exports.init_screen = () => {
     fg: 'yellow',
     interactive: false,
     columnSpacing: 4,               //in chars
-    columnWidth: [12, 8, 12, 12, 8, 12, 12, 12, 12, 8, 8, 8, 8],  // in chars
+    columnWidth: [12, 8, 12, 12, 10, 8, 12, 12, 12, 8, 8, 8, 8],  // in chars
   })
   ui.trade_table = contrib.table({
     keys: true,
