@@ -4,6 +4,7 @@ exports = module.exports = {}
 
 exports.trades = {}
 exports.figures = {
+  unrealized_buys: 0,
   pending_buys: 0,
   pending_sells: 0,
   profit: 0,
@@ -14,7 +15,7 @@ exports.figures = {
 
 const crunch_figures = () => {
   let pending_buy_trades = _.filter( _.values(exports.trades), (t) => {
-    if( t.state === 'ping' || t.buy.pending ) return true
+    if( t.state === 'ping' || t.state === 'partialbuy' || t.buy.pending ) return true
     return false
   })
   exports.figures.pending_buys = _.reduce( pending_buy_trades, (sum, t) => {
@@ -23,6 +24,9 @@ const crunch_figures = () => {
   let pending_sell_trades = _.filter( _.values(exports.trades), (t) => t.state === 'pong' )
   exports.figures.pending_sells = _.reduce( pending_sell_trades, (sum, t) => {
     return sum += t.size*t.sell.executed_price
+  }, 0 )
+  exports.figures.unrealized_buys = _.reduce( pending_sell_trades, (sum, t) => {
+    return sum += t.size*t.buy.executed_price
   }, 0 )
   exports.figures.profit = account.account.sells-account.account.buys
   exports.figures.net_gain = exports.figures.profit-account.account.fees
@@ -33,6 +37,7 @@ const crunch_figures = () => {
 const reset = exports.reset = () => {
   exports.trades = {}
   exports.figures = {
+    unrealized_buys: 0,
     pending_buys: 0,
     pending_sells: 0,
     profit: 0,
@@ -400,15 +405,24 @@ const sell_trade = ( trade ) => {
  *  Sells, partial sells, or partial buys cannot be canceled to preserve profit!
  */
 const can_cancel = exports.can_cancel = (trade) => {
-  if( trade.side === "buy" && trade.buy.pending === true && trade.state !== "canceling" ) return true
+  if( trade.side === "buy" && trade.buy.pending === true && trade.state !== "canceling" && trade.state !== "cancel-pending" ) return true
   return false
 }
 
 const cancel_trade = exports.cancel_trade = (trade, cancel_buy=true, cancel_sell=false) => {
-  ui.logger('sys_log', `Canceling trade ${trade.trade_id}`)
+  ui.logger('sys_log', `Marking trade ${trade.trade_id} for cancelation`)
+  update(trade, (t) => {
+    t.state = 'cancel-pending'
+    t.next_attempt = new Date( new Date().valueOf() + 2000 )
+  })
+}
+
+const execute_trade_cancelation = (trade, cancel_buy=true, cancel_sell=false) => {
   update(trade, (t) => {
     t.state = 'canceling'
   })
+  ui.logger('sys_log', `Canceling trade ${trade.trade_id}`)
+
   mark_trade_for_sync( trade )
 
   if( cancel_buy ) {
@@ -422,7 +436,6 @@ const cancel_trade = exports.cancel_trade = (trade, cancel_buy=true, cancel_sell
       gdax.cancel_order( trade.sell.order_id )
     }
   }
-
 }
 
 const cancel_all_buys = exports.cancel_all_buys = () => {
@@ -448,7 +461,6 @@ const delete_trade = (trade) => {
 const apply_trade = ( trade ) => {
   //  Track profits and fees
   account.update( account.account, (a) => {
-    a.profit += (trade.sell.fiat_value - trade.buy.fiat_value)
     a.fees += trade.sell.fees + trade.buy.fees
   })
 
@@ -510,6 +522,9 @@ const process_trades = exports.process_trades = () => {
         break
       case 'settled':
         delete_trade( trade )
+        break
+      case 'cancel-pending':
+        if( new Date() >= trade.next_attempt ) execute_trade_cancelation(trade)
         break
       case 'canceled':
         if( buckets.valid_buy_price(trade.buy.price) ) {

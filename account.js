@@ -8,7 +8,6 @@ const load = exports.load = () => {
     exports.account = stored_account
   } else {
     let new_account = {
-      profit: 0,
       fees: 0,
       buy_count: 0,
       sell_count: 0,

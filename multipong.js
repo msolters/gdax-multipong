@@ -106,7 +106,7 @@ reload_config = () => {
   })
   .then( () => {
     if( !trade_timer ) {
-      trade_timer = setInterval( trades.process_trades, 500 )
+      trade_timer = setInterval( trades.process_trades, settings.multipong.trade_period )
     }
     return trades.wait_for_all_trades_to_sync()
   })
@@ -116,7 +116,7 @@ reload_config = () => {
       ui.logger('sys_log', 'Press "b" to enable crypto buys.')
       ui.logger('sys_log', 'Press "s" to enable crypto sells.')
     }
-    bucket_timer = setInterval( buckets.process_buckets, 500 )
+    bucket_timer = setInterval( buckets.process_buckets, settings.multipong.trade_period )
   })
   .catch( (error) => {
     ui.logger('sys_log', JSON.stringify(error))
