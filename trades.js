@@ -502,8 +502,10 @@ const process_trades = exports.process_trades = () => {
             buy_trade( trade )
           }
         } else {
-          //  Delete this trade!
-          delete_trade( trade )
+          if( !trade.buy.pending ) {
+            //  Delete this trade!
+            delete_trade( trade )
+          }
         }
         break
       case 'ping':
