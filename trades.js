@@ -237,11 +237,12 @@ exports.sync_trade = async function sync_trade( trade ) {
   if( data.message && data.message === 'NotFound' ) {
     ui.logger('sys_log', `Trade ${trade.trade_id} not found in GDAX.`)
     not_found = true
+    /*
     if( trade.state === 'canceling' ) {
       reset_trade( trade )
       mark_trade_sync_complete( trade )
       return
-    }
+    }*/
     update( trade, (t) => {
       t.sync_status.syncing = false
       t.sync_status.retries++
