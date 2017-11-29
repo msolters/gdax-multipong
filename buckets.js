@@ -71,8 +71,16 @@ const compute = exports.compute = () => {
 }
 
 const valid_buy_price = exports.valid_buy_price = (price) => {
+  let reference_max, runway_length
+  if( gdax.midmarket_price.current <= settings.multipong.max_price ) {
+    reference_max = gdax.midmarket_price.current
+    runway_length = settings.multipong.bucket_runway
+  } else {
+    reference_max = settings.multipong.max_price
+    runway_length = settings.multipong.bucket_runway + 1
+  }
   if( (price < gdax.midmarket_price.current) &&
-      (price > gdax.midmarket_price.current - (settings.multipong.bucket_runway*settings.bucket_width) ) ) {
+      (price > reference_max - (runway_length*settings.bucket_width) ) ) {
     return true
   }
   return false
