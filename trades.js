@@ -105,6 +105,7 @@ const trade_fill = (trade, fill_data) => {
   //  Update trade to indicate buy or sell is complete
   switch( trade.side ) {
     case 'buy':
+      if(trade.state === 'full') return // avoid double-counting!
       ui.logger('sys_log', `Bought trade ${trade.trade_id} @ ${fill_data.price}`)
       update(trade, (t) => {
         t.buy.pending = false
@@ -119,6 +120,7 @@ const trade_fill = (trade, fill_data) => {
       })
       break
     case 'sell':
+      if(trade.state === 'complete') return // avoid double-counting!
       ui.logger('sys_log', `Sold trade ${trade.trade_id} @ ${fill_data.price}`)
       update(trade, (t) => {
         t.sell.pending = false
