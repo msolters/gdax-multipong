@@ -512,6 +512,10 @@ const process_trades = exports.process_trades = () => {
         }
         break
       case 'ping':
+        if( gdax.midmarket_price.current < trade.buy.price-settings.bucket_width ) {
+          sync_trade( trade )
+          continue
+        }
         if( !buckets.valid_buy_price(trade.buy.price) ) {
           //  Delete this trade!
           cancel_trade( trade )
@@ -520,6 +524,12 @@ const process_trades = exports.process_trades = () => {
       case 'full':
         if( !trade.sell.order_id && !trade.sell.pending ) {
           sell_trade( trade )
+        }
+        break
+      case 'pong':
+        if( gdax.midmarket_price.current > trade.sell.price+settings.bucket_width ) {
+          sync_trade( trade )
+          continue
         }
         break
       case 'complete':
