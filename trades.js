@@ -513,7 +513,7 @@ const process_trades = exports.process_trades = () => {
         break
       case 'ping':
         if( gdax.midmarket_price.current < trade.buy.price-settings.bucket_width ) {
-          sync_trade( trade )
+          exports.sync_trade( trade )
           continue
         }
         if( !buckets.valid_buy_price(trade.buy.price) ) {
@@ -528,7 +528,7 @@ const process_trades = exports.process_trades = () => {
         break
       case 'pong':
         if( gdax.midmarket_price.current > trade.sell.price+settings.bucket_width ) {
-          sync_trade( trade )
+          exports.sync_trade( trade )
           continue
         }
         break
